@@ -1,0 +1,21 @@
+numpy
+scipy
+pandas
+biopython
+tensorflow>=2.10
+tensorflow-addons
+cma
+tqdm
+psutil
+matplotlib
+seaborn
+scikit-learn
+joblib
+meme3 (if using motif discovery)  # optional
+mhcflurry  # optional; requires installation steps
+pytorch  # optional if you use MHCflurry PyTorch backend
+requests
+pyyaml
+pytest
+ipython
+jupyter
