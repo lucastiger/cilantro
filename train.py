@@ -41,7 +41,7 @@ def train(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_fasta", default="data/example_sequences.fasta")
+    parser.add_argument("--input_fasta", default="cilantro/data/example_sequences.fasta")
     parser.add_argument("--max_len", type=int, default=200)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=20)
