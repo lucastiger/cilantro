@@ -10,8 +10,6 @@ matplotlib
 seaborn
 scikit-learn
 joblib
-mhcflurry  # optional; requires installation steps
-pytorch  # optional if you use MHCflurry PyTorch backend
 requests
 pyyaml
 pytest
