@@ -25,11 +25,8 @@ class SeqVAE(Model):
         super().build(input_shape)
     
     def encode(self, x):
-        x_emb = self.embedding(x)
-        h = self.encoder_lstm(x_emb)
-        z_mean = self.z_mean(h)
-        z_log_var = self.z_log_var(h)
-        return z_mean, z_log_var
+        h = self.encoder(self.embedding(x))
+        return self.z_mean(h), self.z_log_var(h)
 
     def reparameterize(self, mean, logvar):
         eps = tf.random.normal(shape=tf.shape(mean))
