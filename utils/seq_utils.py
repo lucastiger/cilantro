@@ -20,12 +20,12 @@ def build_vocab_and_encode(seqs, max_len):
     return encoded, aa_to_id
 
 def decode_sequence_from_ids(ids):
-    inv = {0:"-", 1:"X", 2:""}
-    aa_list = list(AA)
-    for i, ch in enumerate(aa_list):
-        inv[i+3] = ch
-    seq = "".join(inv.get(int(x), "X") for x in ids)
-    seq = seq.replace("-", "")
+    id_to_aa = {i + 3: aa for i, aa in enumerate(AA)}
+    seq = ""
+    for x in ids:
+        if x <= 2:
+            continue
+        seq += id_to_aa.get(int(x), "")
     return seq
 
 def load_fasta_as_sequences(path):
