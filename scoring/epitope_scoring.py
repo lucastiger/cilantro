@@ -1,10 +1,6 @@
 # scoring/epitope_scoring.py
 import math
 from collections import Counter
-from typing import List
-from Bio import SeqIO
-
-AA = list("ACDEFGHIKLMNPQRSTVWY")
 
 def shannon_entropy(counts):
     total = sum(counts.values())
@@ -26,9 +22,3 @@ def conservation_score(msa, seq):
         score += 1.0 - shannon_entropy(Counter(col))
 
     return score / L
-
-def load_fasta(path):
-    seqs = []
-    for rec in SeqIO.parse(path, "fasta"):
-        seqs.append(str(rec.seq).upper())
-    return seqs
