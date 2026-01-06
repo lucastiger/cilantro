@@ -13,7 +13,7 @@ class SeqVAE(Model):
         self.z_log_var = layers.Dense(latent_dim)
         self.latent_to_init = layers.Dense(dec_units, activation="tanh")
         self.decoder_lstm_cell = layers.LSTMCell(dec_units)
-        self.decoder_rnn = layers.RNN(self.decoder_lstm_cell, return_sequences=True, return_state=True)
+        self.decoder_rnn = layers.RNN(self.decoder_lstm_cell, return_sequences=False, return_state=True)
         self.decoder_dense = layers.Dense(vocab_size)
 
     def encode(self, x):
