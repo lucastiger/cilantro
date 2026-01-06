@@ -37,7 +37,10 @@ class SeqVAE(Model):
         # start token id = 2, teacher forcing optional
         start_tokens = tf.fill([batch, 1], 2)
         emb = self.embedding(start_tokens)
-        outputs = []
+        
+        # Use TensorArray to collect outputs
+        outputs_ta = tf.TensorArray(dtype=tf.float32, size=seq_len, dynamic_size=False, clear_after_read=False)
+        
         state = init_state
         for t in tf.range(seq_len):
             out, h, c = self.decoder_rnn(emb, initial_state=state)
@@ -50,7 +53,8 @@ class SeqVAE(Model):
                 next_id = tf.argmax(logits, axis=-1)
             emb = self.embedding(tf.cast(next_id, tf.int32))
             state = [h, c]
-        outputs = tf.concat(outputs, axis=1)
+            
+        outputs = outputs_ta.stack() # Stack the TensorArray to get a single tensor
         return outputs
 
     def call(self, x, training=False):
