@@ -51,9 +51,9 @@ class SeqVAE(Model):
         return tf.stack(outputs, axis=1)
 
     def call(self, x, training=False):
-        z_mean, z_log_var = self.encode(x)
-        z = self.reparameterize(z_mean, z_log_var)
-        logits = self.decode(z, seq_len=tf.shape(x)[1], training=training, teacher=x if training else None)
+        mean, log_var = self.encode(x)
+        z = self.reparameterize(mean, log_var)
+        logits = self.decode(z)
         return logits, z_mean, z_log_var
 
 def vae_loss(x_true, logits, z_mean, z_log_var, pad_token=0):
