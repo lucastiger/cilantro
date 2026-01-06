@@ -15,6 +15,8 @@ def train(args):
     dataset = dataset.shuffle(1000).batch(args.batch_size, drop_remainder=True)
     model = SeqVAE(vocab_size=len(vocab), emb_dim=args.emb_dim, enc_units=args.enc_units,
                    latent_dim=args.latent_dim, dec_units=args.dec_units, max_len=args.max_len)
+    model.build((None, args.max_len))
+    
     opt = tf.keras.optimizers.Adam(args.lr)
     ckpt_dir = args.ckpt_dir
     os.makedirs(ckpt_dir, exist_ok=True)
