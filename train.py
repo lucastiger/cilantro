@@ -34,7 +34,7 @@ def train(args):
             loss, recon, kl = train_step(batch)
             if step % 50 == 0:
                 pbar.set_postfix({"loss": float(loss), "recon": float(recon), "kl": float(kl)})
-        model.save_weights(os.path.join(ckpt_dir, f"vae_epoch{epoch}.ckpt"))
+        model.save_weights(os.path.join(ckpt_dir, f"vae_epoch{epoch}.weights.h5"))
         meta = {"epoch": epoch, "args": vars(args)}
         with open(os.path.join(ckpt_dir, "metadata.json"), "w") as f:
             json.dump(meta, f)
