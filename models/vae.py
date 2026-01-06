@@ -33,7 +33,7 @@ class SeqVAE(Model):
         return eps * tf.exp(0.5 * logvar) + mean
 
 
-    def decode(self, z, seq_len=None, training=False, teacher=None):
+    def decode(self, z):
         batch = tf.shape(z)[0]
         h = self.latent_to_hidden(z)
         c = tf.zeros_like(h)
