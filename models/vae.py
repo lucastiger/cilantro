@@ -32,39 +32,23 @@ class SeqVAE(Model):
         eps = tf.random.normal(shape=tf.shape(mean))
         return eps * tf.exp(0.5 * logvar) + mean
 
-    @tf.function
+
     def decode(self, z, seq_len=None, training=False, teacher=None):
-        if seq_len is None:
-            seq_len = self.max_len
         batch = tf.shape(z)[0]
-        init_state = [self.latent_to_init(z), tf.zeros_like(self.latent_to_init(z))]
-        # start token id = 2, teacher forcing optional
-        start_tokens = tf.fill([batch, 1], 2)
-        emb = self.embedding(start_tokens)
-        
-        # Use TensorArray to collect outputs
-        outputs_ta = tf.TensorArray(dtype=tf.float32, size=seq_len, dynamic_size=False, clear_after_read=False)
-        
-        state = init_state
-        for t in tf.range(seq_len):
-            out, h, c = self.decoder_rnn(emb, initial_state=state)
-            logits = self.decoder_dense(out)
-            outputs_ta = outputs_ta.write(t, logits) # Write to TensorArray
-            if training and teacher is not None:
-                # next input from teacher forcing
-                next_id = tf.expand_dims(teacher[:, t], 1)
-            else:
-                next_id = tf.argmax(logits, axis=-1)
-            emb = self.embedding(tf.cast(next_id, tf.int32))
-            state = [h, c]
-        
-        # Stack the TensorArray to get a single tensor and reshape if necessary
-        outputs = outputs_ta.stack()
-        # The `outputs_ta.stack()` will create a tensor of shape (seq_len, batch_size, vocab_size).
-        # We need to transpose it to (batch_size, seq_len, vocab_size).
-        outputs = tf.transpose(outputs, perm=[1, 0, 2])
-        
-        return outputs
+        h = self.latent_to_hidden(z)
+        c = tf.zeros_like(h)
+
+        outputs = []
+        token = tf.fill([batch], 2)  # START token
+
+        for _ in range(self.max_len):
+            emb = self.embedding(token)
+            h, c = self.decoder_cell(emb, [h, c])
+            logits = self.decoder_dense(h)
+            outputs.append(logits)
+            token = tf.argmax(logits, axis=-1)
+
+        return tf.stack(outputs, axis=1)
 
     def call(self, x, training=False):
         z_mean, z_log_var = self.encode(x)
