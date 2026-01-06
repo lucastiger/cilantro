@@ -27,7 +27,8 @@ class SeqVAE(Model):
     def reparameterize(self, mean, logvar):
         eps = tf.random.normal(shape=tf.shape(mean))
         return eps * tf.exp(0.5 * logvar) + mean
-
+        
+    @tf.function
     def decode(self, z, seq_len=None, training=False, teacher=None):
         if seq_len is None:
             seq_len = self.max_len
