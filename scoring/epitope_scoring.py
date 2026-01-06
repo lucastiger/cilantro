@@ -6,15 +6,15 @@ from Bio import SeqIO
 
 AA = list("ACDEFGHIKLMNPQRSTVWY")
 
-def shannon_entropy(column_aa_counts: Counter) -> float:
-    total = sum(column_aa_counts.values())
+def shannon_entropy(counts):
+    total = sum(counts.values())
     if total == 0:
         return 1.0
     ent = 0.0
-    for aa, c in column_aa_counts.items():
+    for c in counts.values():
         p = c / total
         ent -= p * math.log2(p)
-    # normalize by log2(20) to give 0..1
+        
     return ent / math.log2(20)
 
 def msa_entropy(msa_sequences: List[str], window_start: int, window_length: int) -> float:
