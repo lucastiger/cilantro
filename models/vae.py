@@ -1,4 +1,3 @@
-# models/vae.py
 import tensorflow as tf
 from tensorflow.keras import layers, Model
 import numpy as np
@@ -27,7 +26,7 @@ class SeqVAE(Model):
     def reparameterize(self, mean, logvar):
         eps = tf.random.normal(shape=tf.shape(mean))
         return eps * tf.exp(0.5 * logvar) + mean
-        
+
     @tf.function
     def decode(self, z, seq_len=None, training=False, teacher=None):
         if seq_len is None:
@@ -45,7 +44,7 @@ class SeqVAE(Model):
         for t in tf.range(seq_len):
             out, h, c = self.decoder_rnn(emb, initial_state=state)
             logits = self.decoder_dense(out)
-            outputs.append(logits)
+            outputs_ta = outputs_ta.write(t, logits) # Write to TensorArray
             if training and teacher is not None:
                 # next input from teacher forcing
                 next_id = tf.expand_dims(teacher[:, t], 1)
@@ -53,8 +52,13 @@ class SeqVAE(Model):
                 next_id = tf.argmax(logits, axis=-1)
             emb = self.embedding(tf.cast(next_id, tf.int32))
             state = [h, c]
-            
-        outputs = outputs_ta.stack() # Stack the TensorArray to get a single tensor
+        
+        # Stack the TensorArray to get a single tensor and reshape if necessary
+        outputs = outputs_ta.stack()
+        # The `outputs_ta.stack()` will create a tensor of shape (seq_len, batch_size, vocab_size).
+        # We need to transpose it to (batch_size, seq_len, vocab_size).
+        outputs = tf.transpose(outputs, perm=[1, 0, 2])
+        
         return outputs
 
     def call(self, x, training=False):
