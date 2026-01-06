@@ -16,6 +16,10 @@ class SeqVAE(Model):
         self.decoder_rnn = layers.RNN(self.decoder_lstm_cell, return_sequences=False, return_state=True)
         self.decoder_dense = layers.Dense(vocab_size)
 
+    # Build method to declare input shape to Keras
+    def build(self, input_shape):
+        super().build(input_shape)
+    
     def encode(self, x):
         x_emb = self.embedding(x)
         h = self.encoder_lstm(x_emb)
