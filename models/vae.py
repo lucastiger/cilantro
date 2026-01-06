@@ -56,9 +56,12 @@ class SeqVAE(Model):
         logits = self.decode(z)
         return logits, z_mean, z_log_var
 
-def vae_loss(x_true, logits, z_mean, z_log_var, pad_token=0):
-    recon = tf.keras.losses.sparse_categorical_crossentropy(x_true, logits, from_logits=True)
-    mask = tf.cast(tf.not_equal(x_true, pad_token), tf.float32)
-    recon_loss = tf.reduce_sum(recon * mask) / tf.reduce_sum(mask)
-    kl_loss = -0.5 * tf.reduce_mean(1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
-    return recon_loss + 1e-3 * kl_loss, recon_loss, kl_loss
+def vae_loss(x, logits, mean, log_var):
+    recon = tf.keras.losses.sparse_categorical_crossentropy(
+        x, logits, from_logits=True
+    )
+    recon = tf.reduce_mean(recon)
+    kl = -0.5 * tf.reduce_mean(
+        1 + logvar - tf.square(mean) - tf.exp(logvar)
+    )
+    return recon + 1e-3 * kl, recon, kl
