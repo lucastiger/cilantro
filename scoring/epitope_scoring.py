@@ -17,29 +17,15 @@ def shannon_entropy(counts):
         
     return ent / math.log2(20)
 
-def msa_entropy(msa_sequences: List[str], window_start: int, window_length: int) -> float:
-    L = window_length
-    ent_sum = 0.0
-    counted = 0
-    for i in range(window_start, window_start + L):
-        column = [seq[i] for seq in msa_sequences if i < len(seq) and seq[i] != '-']
-        if not column:
-            continue
-        counts = Counter(column)
-        ent_sum += shannon_entropy(counts)
-        counted += 1
-    if counted == 0:
-        return 1.0
-    return ent_sum / counted
+def conservation_score(msa, seq):
+    score = 0.0
+    L = min(len(seq), len(msa[0]))
 
-def sliding_epitope_scores(msa_sequences: List[str], min_len=5, max_len=35):
-    L = max(len(s) for s in msa_sequences)
-    results = []
-    for l in range(min_len, min(max_len, L) + 1):
-        for start in range(0, L - l + 1):
-            ent = msa_entropy(msa_sequences, start, l)
-            results.append((start, l, ent))
-    return results
+    for i in range(L):
+        col = [s[i] for s in msa if i < len(s)]
+        score += 1.0 - shannon_entropy(Counter(col))
+
+    return score / L
 
 def load_fasta(path):
     seqs = []
