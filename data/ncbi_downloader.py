@@ -2,7 +2,7 @@
 from Bio import Entrez
 import time
 
-Entrez.email = "lucas@example.com"  # REQUIRED by NCBI
+Entrez.email = "lucastiger33@gmail.com"  # REQUIRED by NCBI
 
 def fetch_sequences_by_taxon(taxon, out_fasta, max_records=500):
     query = f"{taxon}[Organism] AND complete genome[Title]"
