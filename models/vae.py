@@ -38,7 +38,7 @@ class SeqVAE(Model):
         emb = self.embedding(start_tokens)
         outputs = []
         state = init_state
-        for t in range(seq_len):
+        for t in tf.range(seq_len):
             out, h, c = self.decoder_rnn(emb, initial_state=state)
             logits = self.decoder_dense(out)
             outputs.append(logits)
