@@ -6,14 +6,18 @@ class SeqVAE(Model):
     def __init__(self, vocab_size, emb_dim=64, enc_units=256, latent_dim=64, dec_units=256, max_len=200):
         super().__init__()
         self.max_len = max_len
-        self.vocab_size = vocab_size
+        self.latent_dim = latent_dim
+
         self.embedding = layers.Embedding(vocab_size, emb_dim, mask_zero=True)
-        self.encoder_lstm = layers.Bidirectional(layers.LSTM(enc_units, return_sequences=False))
+        
+        self.encoder = layers.Bidirectional(layers.LSTM(enc_units, return_sequences=False))
+        
         self.z_mean = layers.Dense(latent_dim)
         self.z_log_var = layers.Dense(latent_dim)
-        self.latent_to_init = layers.Dense(dec_units, activation="tanh")
-        self.decoder_lstm_cell = layers.LSTMCell(dec_units)
-        self.decoder_rnn = layers.RNN(self.decoder_lstm_cell, return_sequences=False, return_state=True)
+        
+        self.latent_to_hidden = layers.Dense(dec_units, activation="tanh")
+        
+        self.decoder_cell = layers.LSTMCell(dec_units)
         self.decoder_dense = layers.Dense(vocab_size)
 
     # Build method to declare input shape to Keras
