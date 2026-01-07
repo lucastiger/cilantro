@@ -1,24 +1,29 @@
-# scoring/epitope_scoring.py
 import math
 from collections import Counter
+from typing import List
 
-def shannon_entropy(counts):
+AMINO_ACIDS = "ACDEFGHIKLMNPQRSTVWY"
+
+def shannon_entropy(column):
+    counts = Counter(column)
     total = sum(counts.values())
-    if total == 0:
+    entropy = 0.0
+    for aa in AMINO_ACIDS:
+        p = counts.get(aa, 0) / total if total > 0 else 0
+        if p > 0:
+            entropy -= p * math.log2(p)
+    return entropy
+
+def normalized_entropy(column):
+    return shannon_entropy(column) / math.log2(len(AMINO_ACIDS))
+
+def epitope_conservation_score(msa: List[str], start: int, length: int):
+    entropies = []
+    for i in range(start, start + length):
+        column = [seq[i] for seq in msa if i < len(seq) and seq[i] != "-"]
+        if not column:
+            continue
+        entropies.append(normalized_entropy(column))
+    if not entropies:
         return 1.0
-    ent = 0.0
-    for c in counts.values():
-        p = c / total
-        ent -= p * math.log2(p)
-        
-    return ent / math.log2(20)
-
-def conservation_score(msa, seq):
-    score = 0.0
-    L = min(len(seq), len(msa[0]))
-
-    for i in range(L):
-        col = [s[i] for s in msa if i < len(s)]
-        score += 1.0 - shannon_entropy(Counter(col))
-
-    return score / L
+    return sum(entropies) / len(entropies)
