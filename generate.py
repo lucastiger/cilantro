@@ -14,11 +14,16 @@ def main(args):
     # encode first sequence as seed
     z_mean, z_log = model.encode(tf.constant(tokenized[:1]))
     z_seed = z_mean.numpy()[0]
-    def score_fn(seq):
-        # temporary: naive score based on length & characters
-        return float(len(seq))
-    best = latent_optimize(model, z_seed, score_fn=score_fn, output_dir=args.output_dir,
-                           sigma=args.sigma, popsize=args.popsize, generations=args.generations)
+
+    best = latent_optimize(
+        model,
+        z_seed,
+        output_dir=args.output_dir,
+        sigma=args.sigma,
+        popsize=args.popsize,
+        generations=args.generations,
+    )
+    
     print("Best candidate:", best)
 
 if __name__ == "__main__":
