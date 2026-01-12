@@ -54,7 +54,7 @@ class SeqVAE(Model):
         mean, log_var = self.encode(x)
         z = self.reparameterize(mean, log_var)
         logits = self.decode(z)
-        return logits, z_mean, z_log_var
+        return logits, mean, log_var
 
 def vae_loss(x, logits, mean, log_var):
     recon = tf.keras.losses.sparse_categorical_crossentropy(
