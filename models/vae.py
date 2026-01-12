@@ -43,6 +43,7 @@ class SeqVAE(Model):
 
         for _ in range(self.max_len):
             emb = self.embedding(token)
+            emb = tf.squeeze(emb, axis = 1)
             h, c = self.decoder_cell(emb, [h, c])
             logits = self.decoder_dense(h)
             outputs.append(logits)
