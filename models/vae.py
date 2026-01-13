@@ -62,6 +62,6 @@ def vae_loss(x, logits, mean, log_var):
     )
     recon = tf.reduce_mean(recon)
     kl = -0.5 * tf.reduce_mean(
-        1 + logvar - tf.square(mean) - tf.exp(logvar)
+        1 + log_var - tf.square(mean) - tf.exp(log_var)
     )
     return recon + 1e-3 * kl, recon, kl
