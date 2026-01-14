@@ -9,7 +9,8 @@ from optimize.cma_latent_search import latent_optimize
 def main(args):
     seqs = load_fasta_as_sequences(args.input_fasta)
     tokenized, vocab = build_vocab_and_encode(seqs, max_len=args.max_len)
-    model = SeqVAE(vocab_size=len(vocab), max_len=args.max_len)
+    model = SeqVAE(vocab_size=len(vocab) + 3, max_len=args.max_len)
+    model.build((None, args.max_len))
     model.load_weights(args.ckpt)
     # encode first sequence as seed
     z_mean, z_log = model.encode(tf.constant(tokenized[:1]))
