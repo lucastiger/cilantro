@@ -1,6 +1,6 @@
 # cilantro
 
-Author: Lucas Wu (starter)
+Author: Lucas Wu
 Date: 2025-10-29
 
 Overview
