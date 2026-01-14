@@ -13,7 +13,9 @@ def train(args):
     tokenized, vocab = build_vocab_and_encode(seqs, max_len=args.max_len)
     dataset = tf.data.Dataset.from_tensor_slices(tokenized)
     dataset = dataset.shuffle(1000).batch(args.batch_size, drop_remainder=True)
-    model = SeqVAE(vocab_size=len(vocab), emb_dim=args.emb_dim, enc_units=args.enc_units,
+
+    #add 3 for PAD, UNK, START tokens
+    model = SeqVAE(vocab_size=len(vocab) + 3, emb_dim=args.emb_dim, enc_units=args.enc_units,
                    latent_dim=args.latent_dim, dec_units=args.dec_units, max_len=args.max_len)
     model.build((None, args.max_len))
     
