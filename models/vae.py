@@ -1,54 +1,69 @@
 import tensorflow as tf
 from tensorflow.keras import layers, Model
-import numpy as np
 
 class SeqVAE(Model):
-    def __init__(self, vocab_size, emb_dim=64, enc_units=256, latent_dim=64, dec_units=256, max_len=200):
+    def __init__(
+        self,
+        vocab_size,
+        emb_dim=64,
+        enc_units=256,
+        latent_dim=64,
+        dec_units=256,
+        max_len=200,
+    ):
         super().__init__()
         self.max_len = max_len
         self.latent_dim = latent_dim
+        self.vocab_size = vocab_size
 
-        self.embedding = layers.Embedding(vocab_size, emb_dim, mask_zero=True)
-        
-        self.encoder = layers.Bidirectional(layers.LSTM(enc_units, return_sequences=False))
-        
+        # ---- Encoder ----
+        self.embedding = layers.Embedding(
+            vocab_size, emb_dim, mask_zero=True
+        )
+        self.encoder = layers.Bidirectional(
+            layers.LSTM(enc_units, return_sequences=False)
+        )
+
         self.z_mean = layers.Dense(latent_dim)
         self.z_log_var = layers.Dense(latent_dim)
-        
-        self.latent_to_hidden = layers.Dense(dec_units, activation="tanh")
-        
-        self.decoder_cell = layers.LSTMCell(dec_units)
-        self.decoder_dense = layers.Dense(vocab_size)
 
-    # Build method to declare input shape to Keras
-    def build(self, input_shape):
-        super().build(input_shape)
-    
+        # ---- Decoder ----
+        self.latent_to_init = layers.Dense(dec_units, activation="tanh")
+
+        self.decoder_cell = layers.LSTMCell(dec_units)
+        self.decoder_rnn = layers.RNN(
+            self.decoder_cell, return_sequences=True
+        )
+
+        self.output_dense = layers.Dense(vocab_size)
+
     def encode(self, x):
-        h = self.encoder(self.embedding(x))
+        x = self.embedding(x)
+        h = self.encoder(x)
         return self.z_mean(h), self.z_log_var(h)
 
     def reparameterize(self, mean, logvar):
-        eps = tf.random.normal(shape=tf.shape(mean))
-        return eps * tf.exp(0.5 * logvar) + mean
-
+        eps = tf.random.normal(tf.shape(mean))
+        return mean + tf.exp(0.5 * logvar) * eps
 
     def decode(self, z):
         batch = tf.shape(z)[0]
-        h = self.latent_to_hidden(z)
-        c = tf.zeros_like(h)
 
-        outputs = []
-        token = tf.fill([batch], 2)  # START token
+        # Initial hidden state
+        h0 = self.latent_to_init(z)
+        c0 = tf.zeros_like(h0)
 
-        for _ in range(self.max_len):
-            emb = self.embedding(token)
-            h, c = self.decoder_cell(emb, [h, c])
-            logits = self.decoder_dense(h)
-            outputs.append(logits)
-            token = tf.argmax(logits, axis=-1)
+        # Decoder inputs: START token repeated
+        start_tokens = tf.fill([batch, self.max_len], 2)
+        emb = self.embedding(start_tokens)
 
-        return tf.stack(outputs, axis=1)
+        # Run RNN
+        h_seq = self.decoder_rnn(
+            emb, initial_state=[h0, c0]
+        )
+
+        logits = self.output_dense(h_seq)
+        return logits
 
     def call(self, x, training=False):
         mean, log_var = self.encode(x)
@@ -56,12 +71,15 @@ class SeqVAE(Model):
         logits = self.decode(z)
         return logits, mean, log_var
 
+
 def vae_loss(x, logits, mean, log_var):
     recon = tf.keras.losses.sparse_categorical_crossentropy(
         x, logits, from_logits=True
     )
     recon = tf.reduce_mean(recon)
+
     kl = -0.5 * tf.reduce_mean(
         1 + log_var - tf.square(mean) - tf.exp(log_var)
     )
+
     return recon + 1e-3 * kl, recon, kl
