@@ -23,6 +23,14 @@ def antigen_score(ic50, plddt, folding_energy, toxicity):
         0.15 * toxicity_term
     )
 
+def epitope_presence_score(seq: str, target_epitopes: set) -> float:
+    """
+    Fraction of target epitopes present in the sequence
+    """
+    hits = sum(1 for e in target_epitopes if e in seq)
+    return hits / len(target_epitopes) if target_epitopes else 0.0
+
+
 def predict_ic50(seq):
     # integrate mhcflurry or NetMHCpan here
     return 50.0
@@ -37,11 +45,22 @@ def predict_folding_energy(seq):
 def predict_toxicity(seq):
     return 0.05
     
-def score_antigen_candidate(seq):
-    return antigen_score(
+def score_antigen_candidate(seq: str, target_epitopes: set) -> float:
+    """
+    HARD CONSTRAINT:
+    If no target epitope is present → score = 0
+    """
+    ep_score = epitope_presence_score(seq, target_epitopes)
+    if ep_score == 0.0:
+        return 0.0
+
+    base = antigen_base_score(
         predict_ic50(seq),
         predict_plddt(seq),
         predict_folding_energy(seq),
         predict_toxicity(seq),
     )
+
+    return 0.7 * base + 0.3 * ep_score
+
 
