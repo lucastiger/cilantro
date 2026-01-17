@@ -1,9 +1,8 @@
-# generate.py
 import argparse
-import numpy as np
-from models.vae import SeqVAE
 import tensorflow as tf
-from utils.seq_utils import build_vocab_and_encode, load_fasta_as_sequences, decode_sequence_from_ids
+from models.vae import SeqVAE
+from utils.seq_utils import build_vocab_and_encode, load_fasta_as_sequences
+from scoring.find_top_epitopes import find_top_epitopes
 from optimize.cma_latent_search import latent_optimize
 
 def main(args):
