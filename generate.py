@@ -1,4 +1,6 @@
 import argparse
+import json
+import os
 import tensorflow as tf
 from models.vae import SeqVAE
 from utils.seq_utils import build_vocab_and_encode, load_fasta_as_sequences
@@ -50,6 +52,12 @@ def main(args):
     print("\nBest generated antigen:")
     print(best)
 
+    if args.output_json:
+        os.makedirs(os.path.dirname(args.output_json) or ".", exist_ok=True)
+        with open(args.output_json, "w") as f:
+            json.dump([best], f, indent=2)
+        print(f"Wrote {args.output_json}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -64,6 +72,7 @@ if __name__ == "__main__":
     parser.add_argument("--sigma", type=float, default=0.5)
     parser.add_argument("--popsize", type=int, default=16)
     parser.add_argument("--generations", type=int, default=50)
+    parser.add_argument("--output_json", default="outputs/best.json")
 
     args = parser.parse_args()
     main(args)
