@@ -16,3 +16,4 @@ pytest
 ipython
 jupyter
 biopython
+mhcflurry
