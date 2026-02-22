@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import os
 import shlex
 import subprocess
 import tempfile
+from functools import lru_cache
 from typing import Dict, Iterable, List
 
 import requests
@@ -34,6 +36,146 @@ TOXICITY_PREDICTOR_CMD = os.getenv(
     "TOXICITY_PREDICTOR_CMD",
     "toxdl predict --stdin",
 )
+
+# Approximate global class-I HLA allele frequencies (used as defaults when
+# MHC_ALLELE_FREQUENCIES is not provided). Values are treated as relative
+# weights and are renormalized during scoring.
+DEFAULT_MHC_ALLELE_FREQUENCIES = {
+    "HLA-A*01:01": 0.165,
+    "HLA-A*02:01": 0.259,
+    "HLA-A*02:06": 0.020,
+    "HLA-A*03:01": 0.122,
+    "HLA-A*11:01": 0.151,
+    "HLA-A*23:01": 0.040,
+    "HLA-A*24:02": 0.171,
+    "HLA-A*26:01": 0.021,
+    "HLA-A*29:02": 0.031,
+    "HLA-A*30:01": 0.033,
+    "HLA-A*30:02": 0.029,
+    "HLA-A*31:01": 0.039,
+    "HLA-A*32:01": 0.022,
+    "HLA-A*33:03": 0.035,
+    "HLA-A*68:01": 0.036,
+    "HLA-A*68:02": 0.028,
+    "HLA-B*07:02": 0.112,
+    "HLA-B*08:01": 0.098,
+    "HLA-B*15:01": 0.049,
+    "HLA-B*35:01": 0.067,
+    "HLA-B*40:01": 0.041,
+    "HLA-B*44:02": 0.061,
+    "HLA-B*44:03": 0.050,
+    "HLA-B*51:01": 0.046,
+    "HLA-B*53:01": 0.025,
+    "HLA-B*57:01": 0.022,
+    "HLA-B*58:01": 0.026,
+    "HLA-C*03:04": 0.080,
+    "HLA-C*04:01": 0.121,
+    "HLA-C*05:01": 0.049,
+    "HLA-C*06:02": 0.080,
+    "HLA-C*07:01": 0.110,
+    "HLA-C*07:02": 0.150,
+    "HLA-C*08:02": 0.020,
+    "HLA-C*12:03": 0.070,
+    "HLA-C*14:02": 0.021,
+    "HLA-C*15:02": 0.020,
+}
+
+
+def _normalize_allele_name(allele: str) -> str:
+    normalized = allele.strip()
+    if not normalized:
+        return normalized
+    if normalized.upper().startswith("HLA-"):
+        return normalized
+    return f"HLA-{normalized}"
+
+
+@lru_cache(maxsize=1)
+def _mhcflurry_predictor():
+    from mhcflurry import Class1AffinityPredictor
+
+    return Class1AffinityPredictor.load()
+
+
+
+def default_allele_frequencies(alleles: Iterable[str] | None = None) -> Dict[str, float]:
+    known = {
+        _normalize_allele_name(allele): float(freq)
+        for allele, freq in DEFAULT_MHC_ALLELE_FREQUENCIES.items()
+        if float(freq) > 0
+    }
+    if alleles is None:
+        return known
+
+    requested = {_normalize_allele_name(a) for a in alleles}
+    return {allele: freq for allele, freq in known.items() if allele in requested}
+
+
+def parse_allele_frequencies_env() -> Dict[str, float]:
+    """
+    Optional allele frequency map from JSON string in MHC_ALLELE_FREQUENCIES.
+    Example:
+    {
+      "HLA-A*02:01": 0.15,
+      "HLA-B*07:02": 0.10
+    }
+    """
+    raw = os.getenv("MHC_ALLELE_FREQUENCIES", "").strip()
+    if not raw:
+        return {}
+
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("MHC_ALLELE_FREQUENCIES is not valid JSON.") from exc
+
+    if not isinstance(parsed, dict):
+        raise RuntimeError("MHC_ALLELE_FREQUENCIES must be a JSON object mapping allele->frequency.")
+
+    out: Dict[str, float] = {}
+    for allele, freq in parsed.items():
+        try:
+            freq_val = float(freq)
+        except (TypeError, ValueError):
+            continue
+        if freq_val > 0:
+            out[_normalize_allele_name(str(allele))] = freq_val
+    return out
+
+
+def mhcflurry_supported_alleles() -> List[str]:
+    predictor = _mhcflurry_predictor()
+    alleles = sorted({_normalize_allele_name(a) for a in predictor.supported_alleles})
+    return [a for a in alleles if a]
+
+
+def predict_mhcflurry_kd_matrix(
+    peptides: Iterable[str],
+    alleles: Iterable[str] | None = None,
+) -> Dict[str, Dict[str, float]]:
+    peptides_list = [pep for pep in peptides if pep]
+    if not peptides_list:
+        return {}
+
+    predictor = _mhcflurry_predictor()
+    supported = {_normalize_allele_name(a) for a in predictor.supported_alleles}
+
+    requested_alleles = (
+        [_normalize_allele_name(a) for a in alleles]
+        if alleles is not None
+        else sorted(supported)
+    )
+    filtered_alleles = [a for a in requested_alleles if a in supported]
+    if not filtered_alleles:
+        return {}
+
+    result: Dict[str, Dict[str, float]] = {}
+    for allele in filtered_alleles:
+        affinities = predictor.predict(peptides=peptides_list, allele=allele)
+        result[allele] = {
+            peptide: float(kd) for peptide, kd in zip(peptides_list, affinities)
+        }
+    return result
 
 
 def _parse_iedb_mhci_response(text: str) -> Dict[str, float]:

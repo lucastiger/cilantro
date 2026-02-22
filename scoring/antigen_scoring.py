@@ -3,26 +3,58 @@ import math
 from typing import Iterable, List
 
 from scoring.prediction_tools import (
+    default_allele_frequencies,
+    mhcflurry_supported_alleles,
+    parse_allele_frequencies_env,
     predict_folding_energy_foldx,
-    predict_mhci_ic50s,
+    predict_mhcflurry_kd_matrix,
     predict_plddt_from_esmfold,
     predict_toxicity_external,
 )
-IC50_BEST_NM = 1.0
-IC50_WORST_NM = 50000.0
 PLDDT_BEST = 90.0
 PLDDT_WORST = 50.0
 FOLDING_BEST = -15.0
 FOLDING_WORST = 0.0
 TOXICITY_WORST = 0.3
+KD_BINDING_THRESHOLD_NM = 500.0
 
 
-def normalize_ic50(ic50_nm: float) -> float:
-    ic50_clamped = max(IC50_BEST_NM, min(ic50_nm, IC50_WORST_NM))
-    log_best = math.log10(IC50_BEST_NM)
-    log_worst = math.log10(IC50_WORST_NM)
-    log_val = math.log10(ic50_clamped)
-    return max(0.0, min(1.0, 1.0 - (log_val - log_best) / (log_worst - log_best)))
+def kd_contribution(kd_nm: float) -> float:
+    """
+    f(Kd) = max(0, log10(500) - log10(Kd)).
+    """
+    kd_clamped = max(float(kd_nm), 1e-12)
+    return max(0.0, math.log10(KD_BINDING_THRESHOLD_NM) - math.log10(kd_clamped))
+
+
+def immunogenicity_from_kd_matrix(
+    kd_by_allele: dict[str, dict[str, float]],
+    allele_frequencies: dict[str, float] | None = None,
+) -> float:
+    """
+    I(X) = sum_a p_a * (1 - exp(-S_a(X)))
+    S_a(X) = sum_i f(Kd_{a,i})
+    """
+    if not kd_by_allele:
+        return 0.0
+
+    freqs = allele_frequencies or {}
+    if not freqs:
+        uniform = 1.0 / len(kd_by_allele)
+        freqs = {allele: uniform for allele in kd_by_allele}
+
+    total_freq = sum(v for v in freqs.values() if v > 0)
+    if total_freq <= 0:
+        return 0.0
+
+    score = 0.0
+    for allele, peptide_kds in kd_by_allele.items():
+        pa = max(0.0, freqs.get(allele, 0.0)) / total_freq
+        if pa == 0.0:
+            continue
+        sa = sum(kd_contribution(kd) for kd in peptide_kds.values())
+        score += pa * (1.0 - math.exp(-sa))
+    return score
 
 
 def normalize_plddt(plddt: float) -> float:
@@ -48,23 +80,23 @@ def normalize_toxicity(toxicity: float) -> float:
     return 1.0 - toxicity_clamped / TOXICITY_WORST
 
 
-def antigen_score(ic50, plddt, folding_energy, toxicity):
+def antigen_score(immunogenicity, plddt, folding_energy, toxicity):
     """
     Weighted antigen score:
-    0.50 IC50
+    0.50 immunogenicity
     0.20 pLDDT
     0.15 folding energy
     0.15 toxicity
     """
     
     # Normalize each term to [0,1]
-    ic50_term = normalize_ic50(ic50)
+    immunogenicity_term = max(0.0, min(float(immunogenicity), 1.0))
     plddt_term = normalize_plddt(plddt)
     folding_term = normalize_folding_energy(folding_energy)
     toxicity_term = normalize_toxicity(toxicity)
 
     return (
-        0.50 * ic50_term +
+        0.50 * immunogenicity_term +
         0.20 * plddt_term +
         0.15 * folding_term +
         0.15 * toxicity_term
@@ -88,14 +120,20 @@ def _generate_peptides(seq: str, lengths: Iterable[int]) -> List[str]:
     return peptides
 
 
-def predict_ic50(seq: str) -> float:
+def predict_immunogenicity(seq: str) -> float:
     peptides = _generate_peptides(seq, lengths=range(8, 12))
     if not peptides:
-        return IC50_WORST_NM
-    predictions = predict_mhci_ic50s(peptides)
-    if not predictions:
-        return IC50_WORST_NM
-    return min(predictions.values())
+        return 0.0
+
+    alleles = mhcflurry_supported_alleles()
+    kd_by_allele = predict_mhcflurry_kd_matrix(peptides, alleles=alleles)
+    if not kd_by_allele:
+        return 0.0
+
+    freq_map = parse_allele_frequencies_env()
+    if not freq_map:
+        freq_map = default_allele_frequencies(alleles)
+    return immunogenicity_from_kd_matrix(kd_by_allele, allele_frequencies=freq_map)
 
 def predict_plddt(seq: str) -> float:
     return predict_plddt_from_esmfold(seq)
@@ -106,17 +144,20 @@ def predict_folding_energy(seq: str) -> float:
 def predict_toxicity(seq: str) -> float:
     return predict_toxicity_external(seq)
     
-def score_antigen_candidate(seq: str, target_epitopes: set) -> float:
+def score_antigen_candidate(seq: str, target_epitopes: set | None = None) -> float:
     """
     HARD CONSTRAINT:
     If no target epitope is present → score = 0
     """
-    ep_score = epitope_presence_score(seq, target_epitopes)
-    if ep_score == 0.0:
-        return 0.0
+    if target_epitopes:
+        ep_score = epitope_presence_score(seq, target_epitopes)
+        if ep_score == 0.0:
+            return 0.0
+    else:
+        ep_score = 1.0
 
     base = antigen_score(
-        predict_ic50(seq),
+        predict_immunogenicity(seq),
         predict_plddt(seq),
         predict_folding_energy(seq),
         predict_toxicity(seq),
