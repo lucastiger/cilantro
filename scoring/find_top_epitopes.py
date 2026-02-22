@@ -4,11 +4,17 @@ from collections import Counter
 import math
 from Bio import SeqIO
 
-from scoring.prediction_tools import predict_mhci_ic50s
+from scoring.prediction_tools import (
+    default_allele_frequencies,
+    mhcflurry_supported_alleles,
+    parse_allele_frequencies_env,
+    predict_mhcflurry_kd_matrix,
+)
 
 AMINO_ACIDS = "ACDEFGHIKLMNPQRSTVWY"
 IC50_BEST_NM = 1.0
 IC50_WORST_NM = 50000.0
+KD_BINDING_THRESHOLD_NM = 500.0
 
 
 def shannon_entropy(column: List[str]) -> float:
@@ -43,6 +49,32 @@ def normalize_ic50(ic50_nm: float) -> float:
     return max(0.0, min(1.0, 1.0 - (log_val - log_best) / (log_worst - log_best)))
 
 
+def _kd_contribution(kd_nm: float) -> float:
+    kd_clamped = max(float(kd_nm), 1e-12)
+    return max(0.0, math.log10(KD_BINDING_THRESHOLD_NM) - math.log10(kd_clamped))
+
+
+def _epitope_immunogenicity_score(
+    epitope: str,
+    kd_by_allele: Dict[str, Dict[str, float]],
+    allele_frequencies: Dict[str, float],
+) -> float:
+    total_freq = sum(freq for freq in allele_frequencies.values() if freq > 0)
+    if total_freq <= 0:
+        return 0.0
+
+    score = 0.0
+    for allele, freq in allele_frequencies.items():
+        if freq <= 0:
+            continue
+        kd = kd_by_allele.get(allele, {}).get(epitope)
+        if kd is None:
+            continue
+        pa = freq / total_freq
+        score += pa * _kd_contribution(kd)
+    return score
+
+
 def find_top_epitopes(
     fasta_path: str,
     min_len: int = 5,
@@ -57,8 +89,7 @@ def find_top_epitopes(
         'length': int,
         'entropy': float,
         'entropy_score': float,
-        'ic50': float,
-        'ic50_score': float,
+        'epitope_immunogenicity': float,
         'overall_score': float,
         'sequences': set(str),
     }
@@ -70,7 +101,14 @@ def find_top_epitopes(
     L = min(len(s) for s in seqs)
     results = []
 
-    ic50_cache: Dict[str, float] = {}
+    epitope_score_cache: Dict[str, float] = {}
+    alleles = mhcflurry_supported_alleles()
+    freq_map = parse_allele_frequencies_env()
+    if not freq_map:
+        freq_map = default_allele_frequencies(alleles)
+    if not freq_map and alleles:
+        uniform = 1.0 / len(alleles)
+        freq_map = {allele: uniform for allele in alleles}
 
     for window in range(min_len, max_len + 1):
         for start in range(0, L - window + 1):
@@ -90,26 +128,33 @@ def find_top_epitopes(
                 if len(s) >= start + window
             }
 
-            missing_epitopes = [ep for ep in epitope_set if ep not in ic50_cache]
-            if missing_epitopes:
-                ic50_cache.update(predict_mhci_ic50s(missing_epitopes))
+            missing_epitopes = [ep for ep in epitope_set if ep not in epitope_score_cache]
+            if missing_epitopes and alleles:
+                kd_by_allele = predict_mhcflurry_kd_matrix(missing_epitopes, alleles=alleles)
+                for ep in missing_epitopes:
+                    epitope_score_cache[ep] = _epitope_immunogenicity_score(
+                        ep,
+                        kd_by_allele,
+                        freq_map,
+                    )
+            elif missing_epitopes:
+                for ep in missing_epitopes:
+                    epitope_score_cache[ep] = 0.0
 
-            ic50_values = [
-                ic50_cache.get(ep, IC50_WORST_NM)
+            epitope_scores = [
+                epitope_score_cache.get(ep, 0.0)
                 for ep in epitope_set
             ]
-            avg_ic50 = sum(ic50_values) / len(ic50_values) if ic50_values else IC50_WORST_NM
-            ic50_score = normalize_ic50(avg_ic50)
+            avg_epitope_score = sum(epitope_scores) / len(epitope_scores) if epitope_scores else 0.0
             entropy_score = 1.0 - avg_entropy
-            overall_score = 0.6 * entropy_score + 0.4 * ic50_score
+            overall_score = 0.6 * entropy_score + 0.4 * avg_epitope_score
 
             results.append({
                 "start": start,
                 "length": window,
                 "entropy": avg_entropy,
                 "entropy_score": entropy_score,
-                "ic50": avg_ic50,
-                "ic50_score": ic50_score,
+                "epitope_immunogenicity": avg_epitope_score,
                 "overall_score": overall_score,
                 "sequences": epitope_set,
             })
