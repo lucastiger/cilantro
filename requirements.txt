@@ -1,5 +1,5 @@
 --extra-index-url https://download.pytorch.org/whl/cu121
-numpy
+numpy<2.0.0
 scipy
 pandas
 biopython
@@ -9,7 +9,7 @@ tqdm
 psutil
 matplotlib
 seaborn
-scikit-learn
+scikit-learn==1.2.2
 joblib
 requests
 pyyaml
