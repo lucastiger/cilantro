@@ -23,6 +23,7 @@ ESMFOLD_URL = os.getenv(
     "ESMFOLD_URL",
     "https://api.esmatlas.com/foldSequence/v1/pdb/",
 )
+ESMFOLD_BACKEND = os.getenv("ESMFOLD_BACKEND", "local").strip().lower()
 
 # Optional local command integrations (preferred when available)
 # Expected output format for MHCI_PREDICTOR_CMD: TSV with columns including `peptide` and `ic50`.
@@ -280,23 +281,78 @@ def fetch_esmfold_pdb(sequence: str, timeout: int = 120) -> str:
             "fetch_esmfold_pdb requires PDB text."
         )
 
+    if ESMFOLD_BACKEND == "local":
+        return _infer_local_esmfold_pdb(sequence)
+
     response = _post_no_proxy(ESMFOLD_URL, data=sequence, timeout=timeout)
     return response.text
 
 
-def average_plddt_from_pdb(pdb_text: str) -> float:
-    b_factors: List[float] = []
+@lru_cache(maxsize=1)
+def _load_local_esmfold_model():
+    try:
+        import torch
+        import esm
+    except ImportError as exc:
+        raise RuntimeError(
+            "Local ESMFold backend requires optional dependencies: torch and fair-esm."
+        ) from exc
+
+    model = esm.pretrained.esmfold_v1()
+    model = model.eval()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = model.to(device)
+    return model, torch
+
+
+def _infer_local_esmfold_pdb(sequence: str) -> str:
+    model, torch = _load_local_esmfold_model()
+    with torch.no_grad():
+        return model.infer_pdb(sequence)
+
+
+
+def residue_plddt_from_pdb(pdb_text: str) -> List[float]:
+    residue_scores: List[float] = []
+    current_residue = None
+    current_scores: List[float] = []
+
     for line in pdb_text.splitlines():
         if not line.startswith("ATOM"):
             continue
+
         try:
+            residue_id = int(line[22:26].strip())
             b_factor = float(line[60:66].strip())
         except ValueError:
             continue
-        b_factors.append(b_factor)
-    if not b_factors:
-        raise RuntimeError("No pLDDT values found in PDB output.")
-    return sum(b_factors) / len(b_factors)
+
+        if current_residue is None:
+            current_residue = residue_id
+
+        if residue_id != current_residue:
+            residue_scores.append(sum(current_scores) / len(current_scores))
+            current_scores = []
+            current_residue = residue_id
+
+        current_scores.append(b_factor)
+
+    if current_scores:
+        residue_scores.append(sum(current_scores) / len(current_scores))
+
+    if not residue_scores:
+        raise RuntimeError("No per-residue pLDDT values found in PDB output.")
+
+    return residue_scores
+
+
+def plddt_measurements_from_esmfold(sequence: str, timeout: int = 120) -> Dict[str, float | List[float]]:
+    pdb_text = fetch_esmfold_pdb(sequence, timeout=timeout)
+    per_residue = residue_plddt_from_pdb(pdb_text)
+    return {
+        "mean_plddt": sum(per_residue) / len(per_residue),
+        "per_residue_plddt": per_residue,
+    }
 
 
 def predict_plddt_from_esmfold(sequence: str, timeout: int = 120) -> float:
@@ -305,10 +361,11 @@ def predict_plddt_from_esmfold(sequence: str, timeout: int = 120) -> float:
         try:
             return float(out)
         except ValueError:
-            return average_plddt_from_pdb(out)
+            residue_scores = residue_plddt_from_pdb(out)
+            return sum(residue_scores) / len(residue_scores)
 
-    pdb_text = fetch_esmfold_pdb(sequence, timeout=timeout)
-    return average_plddt_from_pdb(pdb_text)
+    measurements = plddt_measurements_from_esmfold(sequence, timeout=timeout)
+    return float(measurements["mean_plddt"])
 
 
 def predict_folding_energy_foldx(sequence: str, timeout: int = 300) -> float:
