@@ -37,6 +37,8 @@ TOXICITY_PREDICTOR_CMD = os.getenv(
     "TOXICITY_PREDICTOR_CMD",
     "toxdl predict --stdin",
 )
+# Expected output format for ESM2_LIKELIHOOD_CMD: numeric mean log-likelihood per residue.
+ESM2_LIKELIHOOD_CMD = os.getenv("ESM2_LIKELIHOOD_CMD", "")
 
 # Approximate global class-I HLA allele frequencies (used as defaults when
 # MHC_ALLELE_FREQUENCIES is not provided). Values are treated as relative
@@ -429,3 +431,56 @@ def predict_toxicity_external(sequence: str, timeout: int = 120) -> float:
         return float(out)
     except ValueError as exc:
         raise RuntimeError("Toxicity predictor did not return a numeric value.") from exc
+
+
+@lru_cache(maxsize=1)
+def _load_local_esm2_model():
+    try:
+        import torch
+        import esm
+    except ImportError as exc:
+        raise RuntimeError(
+            "ESM-2 likelihood scoring requires optional dependencies: torch and fair-esm."
+        ) from exc
+
+    model, alphabet = esm.pretrained.esm2_t33_650M_UR50D()
+    model = model.eval()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = model.to(device)
+    batch_converter = alphabet.get_batch_converter()
+    return model, alphabet, batch_converter, device, torch
+
+
+def predict_esm2_mean_log_likelihood(sequence: str) -> float:
+    """
+    Returns the mean per-residue log-likelihood under ESM-2.
+
+    Larger (less negative) values indicate a sequence that is more probable
+    under the ESM-2 protein language model.
+    """
+    if not sequence:
+        raise ValueError("Sequence must not be empty.")
+
+    if ESM2_LIKELIHOOD_CMD:
+        out = _run_command(ESM2_LIKELIHOOD_CMD, sequence, timeout=120).strip()
+        try:
+            return float(out)
+        except ValueError as exc:
+            raise RuntimeError("ESM2_LIKELIHOOD_CMD did not return a numeric value.") from exc
+
+    model, _, batch_converter, device, torch = _load_local_esm2_model()
+    _, _, batch_tokens = batch_converter([("sequence", sequence)])
+    batch_tokens = batch_tokens.to(device)
+
+    with torch.no_grad():
+        logits = model(batch_tokens, repr_layers=[], return_contacts=False)["logits"]
+        log_probs = torch.log_softmax(logits, dim=-1)
+
+    # Exclude BOS/EOS tokens and average across sequence length.
+    token_log_probs = log_probs[:, 1:-1, :]
+    sequence_tokens = batch_tokens[:, 1:-1]
+    if sequence_tokens.numel() == 0:
+        raise RuntimeError("No amino-acid residues found after tokenization.")
+
+    per_residue_logp = token_log_probs.gather(-1, sequence_tokens.unsqueeze(-1)).squeeze(-1)
+    return float(per_residue_logp.mean().item())
