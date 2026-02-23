@@ -21,3 +21,4 @@ torch
 torchvision
 torchaudio
 fair-esm
+toxinpred3
