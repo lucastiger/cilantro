@@ -6,15 +6,12 @@ from scoring.prediction_tools import (
     default_allele_frequencies,
     mhcflurry_supported_alleles,
     parse_allele_frequencies_env,
-    predict_folding_energy_foldx,
+    predict_esm2_mean_log_likelihood,
     predict_mhcflurry_kd_matrix,
-    predict_plddt_from_esmfold,
     predict_toxicity_external,
 )
-PLDDT_BEST = 90.0
-PLDDT_WORST = 50.0
-FOLDING_BEST = -15.0
-FOLDING_WORST = 0.0
+ESM2_LOG_LIKELIHOOD_BEST = -0.5
+ESM2_LOG_LIKELIHOOD_WORST = -4.0
 TOXICITY_WORST = 0.3
 KD_BINDING_THRESHOLD_NM = 500.0
 
@@ -57,20 +54,15 @@ def immunogenicity_from_kd_matrix(
     return score
 
 
-def normalize_plddt(plddt: float) -> float:
-    if plddt <= PLDDT_WORST:
+def normalize_esm2_log_likelihood(mean_log_likelihood: float) -> float:
+    if mean_log_likelihood <= ESM2_LOG_LIKELIHOOD_WORST:
         return 0.0
-    if plddt >= PLDDT_BEST:
+    if mean_log_likelihood >= ESM2_LOG_LIKELIHOOD_BEST:
         return 1.0
-    return (plddt - PLDDT_WORST) / (PLDDT_BEST - PLDDT_WORST)
-
-
-def normalize_folding_energy(folding_energy: float) -> float:
-    if folding_energy <= FOLDING_BEST:
-        return 1.0
-    if folding_energy >= FOLDING_WORST:
-        return 0.0
-    return (FOLDING_WORST - folding_energy) / (FOLDING_WORST - FOLDING_BEST)
+    return (
+        (mean_log_likelihood - ESM2_LOG_LIKELIHOOD_WORST)
+        / (ESM2_LOG_LIKELIHOOD_BEST - ESM2_LOG_LIKELIHOOD_WORST)
+    )
 
 
 def normalize_toxicity(toxicity: float) -> float:
@@ -80,25 +72,22 @@ def normalize_toxicity(toxicity: float) -> float:
     return 1.0 - toxicity_clamped / TOXICITY_WORST
 
 
-def antigen_score(immunogenicity, plddt, folding_energy, toxicity):
+def antigen_score(immunogenicity, esm2_mean_log_likelihood, toxicity):
     """
     Weighted antigen score:
     0.50 immunogenicity
-    0.20 pLDDT
-    0.15 folding energy
+    0.35 ESM-2 sequence mean log-likelihood
     0.15 toxicity
     """
     
     # Normalize each term to [0,1]
     immunogenicity_term = max(0.0, min(float(immunogenicity), 1.0))
-    plddt_term = normalize_plddt(plddt)
-    folding_term = normalize_folding_energy(folding_energy)
+    esm2_term = normalize_esm2_log_likelihood(esm2_mean_log_likelihood)
     toxicity_term = normalize_toxicity(toxicity)
 
     return (
         0.50 * immunogenicity_term +
-        0.20 * plddt_term +
-        0.15 * folding_term +
+        0.35 * esm2_term +
         0.15 * toxicity_term
     )
 
@@ -135,11 +124,8 @@ def predict_immunogenicity(seq: str) -> float:
         freq_map = default_allele_frequencies(alleles)
     return immunogenicity_from_kd_matrix(kd_by_allele, allele_frequencies=freq_map)
 
-def predict_plddt(seq: str) -> float:
-    return predict_plddt_from_esmfold(seq)
-
-def predict_folding_energy(seq: str) -> float:
-    return predict_folding_energy_foldx(seq)
+def predict_esm2_sequence_log_likelihood(seq: str) -> float:
+    return predict_esm2_mean_log_likelihood(seq)
 
 def predict_toxicity(seq: str) -> float:
     return predict_toxicity_external(seq)
@@ -158,8 +144,7 @@ def score_antigen_candidate(seq: str, target_epitopes: set | None = None) -> flo
 
     base = antigen_score(
         predict_immunogenicity(seq),
-        predict_plddt(seq),
-        predict_folding_energy(seq),
+        predict_esm2_sequence_log_likelihood(seq),
         predict_toxicity(seq),
     )
 
