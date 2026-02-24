@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import csv
-import io
-import json
 import os
 import shlex
 import subprocess
@@ -11,33 +9,10 @@ import tempfile
 from functools import lru_cache
 from typing import Dict, Iterable, List
 
-import requests
-
-MHC_ALLELE_DEFAULT = os.getenv("MHC_ALLELE", "HLA-A*02:01")
-IEDB_MHCI_URL = os.getenv(
-    "IEDB_MHCI_URL",
-    "http://tools-cluster-interface.iedb.org/tools_api/mhci/",
-)
-IEDB_MHCI_METHOD = os.getenv("IEDB_MHCI_METHOD", "netmhcpan")
-ESMFOLD_URL = os.getenv(
-    "ESMFOLD_URL",
-    "https://api.esmatlas.com/foldSequence/v1/pdb/",
-)
-ESMFOLD_BACKEND = os.getenv("ESMFOLD_BACKEND", "local").strip().lower()
-
-# Optional local command integrations (preferred when available)
-# Expected output format for MHCI_PREDICTOR_CMD: TSV with columns including `peptide` and `ic50`.
-MHCI_PREDICTOR_CMD = os.getenv("MHCI_PREDICTOR_CMD", "")
-# Expected output format for PLDDT_PREDICTOR_CMD: either a numeric value or PDB text with B-factors.
-PLDDT_PREDICTOR_CMD = os.getenv("PLDDT_PREDICTOR_CMD", "")
-# Expected output format for FOLDING_PREDICTOR_CMD: numeric folding energy value.
-FOLDING_PREDICTOR_CMD = os.getenv("FOLDING_PREDICTOR_CMD", "")
-FOLDX_BIN = os.getenv("FOLDX_BIN", "foldx")
-TOXICITY_PREDICTOR_CMD = os.getenv(
-    "TOXICITY_PREDICTOR_CMD",
-    "toxinpred3",
-)
-# Expected output format for ESM2_LIKELIHOOD_CMD: numeric mean log-likelihood per residue.
+# Optional local command integration for toxicity prediction.
+TOXICITY_PREDICTOR_CMD = os.getenv("TOXICITY_PREDICTOR_CMD", "toxinpred3")
+# Optional local command integration for ESM-2 likelihood.
+# Expected output format: numeric mean log-likelihood per residue.
 ESM2_LIKELIHOOD_CMD = os.getenv("ESM2_LIKELIHOOD_CMD", "")
 
 # Approximate global class-I HLA allele frequencies (used as defaults when
@@ -100,7 +75,6 @@ def _mhcflurry_predictor():
     return Class1AffinityPredictor.load()
 
 
-
 def default_allele_frequencies(alleles: Iterable[str] | None = None) -> Dict[str, float]:
     known = {
         _normalize_allele_name(allele): float(freq)
@@ -126,6 +100,8 @@ def parse_allele_frequencies_env() -> Dict[str, float]:
     raw = os.getenv("MHC_ALLELE_FREQUENCIES", "").strip()
     if not raw:
         return {}
+
+    import json
 
     try:
         parsed = json.loads(raw)
@@ -175,36 +151,8 @@ def predict_mhcflurry_kd_matrix(
     result: Dict[str, Dict[str, float]] = {}
     for allele in filtered_alleles:
         affinities = predictor.predict(peptides=peptides_list, allele=allele)
-        result[allele] = {
-            peptide: float(kd) for peptide, kd in zip(peptides_list, affinities)
-        }
+        result[allele] = {peptide: float(kd) for peptide, kd in zip(peptides_list, affinities)}
     return result
-
-
-def _parse_iedb_mhci_response(text: str) -> Dict[str, float]:
-    reader = csv.reader(io.StringIO(text), delimiter="\t")
-    rows = [row for row in reader if row]
-    if not rows:
-        raise RuntimeError("MHC-I predictor response was empty.")
-
-    header = [h.strip().lower() for h in rows[0]]
-    if "peptide" not in header or "ic50" not in header:
-        raise RuntimeError(f"Unexpected MHC-I response header: {rows[0]}")
-
-    peptide_idx = header.index("peptide")
-    ic50_idx = header.index("ic50")
-    predictions = {}
-    for row in rows[1:]:
-        if len(row) <= max(peptide_idx, ic50_idx):
-            continue
-        peptide = row[peptide_idx].strip()
-        try:
-            ic50_val = float(row[ic50_idx])
-        except ValueError:
-            continue
-        if peptide:
-            predictions[peptide] = ic50_val
-    return predictions
 
 
 def _run_command(command_str: str, stdin_text: str, timeout: int) -> str:
@@ -227,199 +175,6 @@ def _run_command(command_str: str, stdin_text: str, timeout: int) -> str:
         stderr = exc.stderr.strip()
         raise RuntimeError(f"Command failed ({' '.join(command)}): {stderr}") from exc
     return result.stdout
-
-
-def _post_no_proxy(url: str, data, timeout: int) -> requests.Response:
-    session = requests.Session()
-    # proxy in this environment can block external tool hosts; try direct network first.
-    session.trust_env = False
-    try:
-        response = session.post(url, data=data, timeout=timeout)
-        response.raise_for_status()
-        return response
-    except Exception:
-        # Fallback to environment proxy settings.
-        response = requests.post(url, data=data, timeout=timeout)
-        response.raise_for_status()
-        return response
-
-
-def predict_mhci_ic50s(
-    peptides: Iterable[str],
-    allele: str | None = None,
-    method: str | None = None,
-    url: str | None = None,
-    timeout: int = 60,
-) -> Dict[str, float]:
-    peptides_list = [pep for pep in peptides if pep]
-    if not peptides_list:
-        return {}
-
-    if MHCI_PREDICTOR_CMD:
-        input_payload = "\n".join(peptides_list)
-        output = _run_command(MHCI_PREDICTOR_CMD, input_payload, timeout=timeout)
-        return _parse_iedb_mhci_response(output)
-
-    payload = {
-        "method": method or IEDB_MHCI_METHOD,
-        "sequence_text": "\n".join(peptides_list),
-        "allele": allele or MHC_ALLELE_DEFAULT,
-    }
-    response = _post_no_proxy(url or IEDB_MHCI_URL, data=payload, timeout=timeout)
-    return _parse_iedb_mhci_response(response.text)
-
-
-def fetch_esmfold_pdb(sequence: str, timeout: int = 120) -> str:
-    if not sequence:
-        raise ValueError("Sequence must not be empty.")
-
-    if PLDDT_PREDICTOR_CMD:
-        out = _run_command(PLDDT_PREDICTOR_CMD, sequence, timeout=timeout)
-        # if command returns PDB text, use directly; if numeric, we cannot build structure.
-        if "ATOM" in out:
-            return out
-        raise RuntimeError(
-            "PLDDT_PREDICTOR_CMD returned numeric-only output; "
-            "fetch_esmfold_pdb requires PDB text."
-        )
-
-    if ESMFOLD_BACKEND == "local":
-        return _infer_local_esmfold_pdb(sequence)
-
-    response = _post_no_proxy(ESMFOLD_URL, data=sequence, timeout=timeout)
-    return response.text
-
-
-@lru_cache(maxsize=1)
-def _load_local_esmfold_model():
-    try:
-        import torch
-        import esm
-    except ImportError as exc:
-        raise RuntimeError(
-            "Local ESMFold backend requires optional dependencies: torch and fair-esm."
-        ) from exc
-
-    model = esm.pretrained.esmfold_v1()
-    model = model.eval()
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = model.to(device)
-    return model, torch
-
-
-def _infer_local_esmfold_pdb(sequence: str) -> str:
-    model, torch = _load_local_esmfold_model()
-    with torch.no_grad():
-        return model.infer_pdb(sequence)
-
-
-
-def residue_plddt_from_pdb(pdb_text: str) -> List[float]:
-    residue_scores: List[float] = []
-    current_residue = None
-    current_scores: List[float] = []
-
-    for line in pdb_text.splitlines():
-        if not line.startswith("ATOM"):
-            continue
-
-        try:
-            residue_id = int(line[22:26].strip())
-            b_factor = float(line[60:66].strip())
-        except ValueError:
-            continue
-
-        if current_residue is None:
-            current_residue = residue_id
-
-        if residue_id != current_residue:
-            residue_scores.append(sum(current_scores) / len(current_scores))
-            current_scores = []
-            current_residue = residue_id
-
-        current_scores.append(b_factor)
-
-    if current_scores:
-        residue_scores.append(sum(current_scores) / len(current_scores))
-
-    if not residue_scores:
-        raise RuntimeError("No per-residue pLDDT values found in PDB output.")
-
-    return residue_scores
-
-
-def plddt_measurements_from_esmfold(sequence: str, timeout: int = 120) -> Dict[str, float | List[float]]:
-    pdb_text = fetch_esmfold_pdb(sequence, timeout=timeout)
-    per_residue = residue_plddt_from_pdb(pdb_text)
-    return {
-        "mean_plddt": sum(per_residue) / len(per_residue),
-        "per_residue_plddt": per_residue,
-    }
-
-
-def predict_plddt_from_esmfold(sequence: str, timeout: int = 120) -> float:
-    if PLDDT_PREDICTOR_CMD:
-        out = _run_command(PLDDT_PREDICTOR_CMD, sequence, timeout=timeout).strip()
-        try:
-            return float(out)
-        except ValueError:
-            residue_scores = residue_plddt_from_pdb(out)
-            return sum(residue_scores) / len(residue_scores)
-
-    measurements = plddt_measurements_from_esmfold(sequence, timeout=timeout)
-    return float(measurements["mean_plddt"])
-
-
-def predict_folding_energy_foldx(sequence: str, timeout: int = 300) -> float:
-    if FOLDING_PREDICTOR_CMD:
-        out = _run_command(FOLDING_PREDICTOR_CMD, sequence, timeout=timeout).strip()
-        try:
-            return float(out)
-        except ValueError as exc:
-            raise RuntimeError("FOLDING_PREDICTOR_CMD did not return a numeric value.") from exc
-
-    pdb_text = fetch_esmfold_pdb(sequence, timeout=timeout)
-    with tempfile.TemporaryDirectory() as tmpdir:
-        pdb_path = os.path.join(tmpdir, "model.pdb")
-        with open(pdb_path, "w", encoding="utf-8") as handle:
-            handle.write(pdb_text)
-
-        command = [
-            FOLDX_BIN,
-            "--command=Stability",
-            f"--pdb={os.path.basename(pdb_path)}",
-            f"--output-dir={tmpdir}",
-        ]
-        try:
-            subprocess.run(
-                command,
-                cwd=tmpdir,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=timeout,
-            )
-        except FileNotFoundError as exc:
-            raise RuntimeError(
-                f"FoldX binary '{FOLDX_BIN}' not found. Set FOLDX_BIN to a valid executable."
-            ) from exc
-
-        summary_path = os.path.join(tmpdir, "Summary_model.fxout")
-        if not os.path.exists(summary_path):
-            raise RuntimeError("FoldX did not produce Summary_model.fxout.")
-
-        with open(summary_path, encoding="utf-8") as handle:
-            lines = [line.strip() for line in handle if line.strip()]
-        if len(lines) < 2:
-            raise RuntimeError("FoldX output missing summary values.")
-
-        header = [col.strip().lower() for col in lines[0].split("\t")]
-        values = lines[1].split("\t")
-        if "total energy" not in header:
-            raise RuntimeError("FoldX summary missing Total Energy column.")
-        idx = header.index("total energy")
-        return float(values[idx])
 
 
 def predict_toxicity_external_batch(
