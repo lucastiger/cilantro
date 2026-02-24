@@ -1,7 +1,6 @@
 # train.py
 import argparse
 import tensorflow as tf
-import numpy as np
 from models.vae import SeqVAE, vae_loss
 from utils.seq_utils import build_vocab_and_encode, load_fasta_as_sequences
 from tqdm import tqdm
@@ -16,7 +15,8 @@ def train(args):
 
     #add 3 for PAD, UNK, START tokens
     model = SeqVAE(vocab_size=len(vocab) + 3, emb_dim=args.emb_dim, enc_units=args.enc_units,
-                   latent_dim=args.latent_dim, dec_units=args.dec_units, max_len=args.max_len)
+                   latent_dim=args.latent_dim, dec_units=args.dec_units, max_len=args.max_len,
+                   dropout=args.dropout)
     model.build((None, args.max_len))
     
     opt = tf.keras.optimizers.Adam(args.lr)
@@ -27,7 +27,7 @@ def train(args):
     def train_step(x):
         with tf.GradientTape() as tape:
             logits, z_mean, z_log_var = model(x, training=True)
-            loss, recon, kl = vae_loss(x, logits, z_mean, z_log_var)
+            loss, recon, kl = vae_loss(x, logits, z_mean, z_log_var, beta=args.kl_beta)
         grads = tape.gradient(loss, model.trainable_variables)
         opt.apply_gradients(zip(grads, model.trainable_variables))
         return loss, recon, kl
@@ -49,10 +49,12 @@ if __name__ == "__main__":
     parser.add_argument("--max_len", type=int, default=200)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=20)
-    parser.add_argument("--emb_dim", type=int, default=64)
+    parser.add_argument("--emb_dim", type=int, default=128)
     parser.add_argument("--enc_units", type=int, default=256)
     parser.add_argument("--latent_dim", type=int, default=64)
     parser.add_argument("--dec_units", type=int, default=256)
+    parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument("--kl_beta", type=float, default=1e-3)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--ckpt_dir", default="checkpoints")
     args = parser.parse_args()
