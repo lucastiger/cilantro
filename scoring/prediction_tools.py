@@ -35,7 +35,7 @@ FOLDING_PREDICTOR_CMD = os.getenv("FOLDING_PREDICTOR_CMD", "")
 FOLDX_BIN = os.getenv("FOLDX_BIN", "foldx")
 TOXICITY_PREDICTOR_CMD = os.getenv(
     "TOXICITY_PREDICTOR_CMD",
-    "toxdl predict --stdin",
+    "toxinpred3",
 )
 # Expected output format for ESM2_LIKELIHOOD_CMD: numeric mean log-likelihood per residue.
 ESM2_LIKELIHOOD_CMD = os.getenv("ESM2_LIKELIHOOD_CMD", "")
@@ -422,15 +422,89 @@ def predict_folding_energy_foldx(sequence: str, timeout: int = 300) -> float:
         return float(values[idx])
 
 
+def predict_toxicity_external_batch(
+    sequences: Iterable[str],
+    threshold: float = 0.38,
+    model: int = 2,
+    display: int = 2,
+    timeout: int = 120,
+) -> List[float]:
+    seqs = [seq.strip() for seq in sequences if seq and seq.strip()]
+    if not seqs:
+        return []
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as in_handle:
+        for seq in seqs:
+            in_handle.write(f"{seq}\n")
+        input_path = in_handle.name
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv", encoding="utf-8") as out_handle:
+        output_path = out_handle.name
+
+    command = shlex.split(TOXICITY_PREDICTOR_CMD)
+    command.extend(
+        [
+            "-i",
+            input_path,
+            "-o",
+            output_path,
+            "-t",
+            str(threshold),
+            "-m",
+            str(model),
+            "-d",
+            str(display),
+        ]
+    )
+
+    try:
+        try:
+            subprocess.run(
+                command,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=timeout,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError(f"Command not found: {command[0]}") from exc
+        except subprocess.CalledProcessError as exc:
+            stderr = (exc.stderr or "").strip()
+            raise RuntimeError(f"Command failed ({' '.join(command)}): {stderr}") from exc
+
+        with open(output_path, newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            rows = list(reader)
+
+        if len(rows) != len(seqs):
+            raise RuntimeError(
+                "Toxicity predictor returned an unexpected number of rows. "
+                f"Expected {len(seqs)}, got {len(rows)}."
+            )
+
+        scores: List[float] = []
+        for row in rows:
+            if "Hybrid Score" not in row:
+                raise RuntimeError("Toxicity predictor output missing 'Hybrid Score' column.")
+            try:
+                score = float(row["Hybrid Score"])
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError("Toxicity predictor returned a non-numeric hybrid score.") from exc
+            scores.append(max(0.0, min(score, 1.0)))
+        return scores
+    finally:
+        for path in (input_path, output_path):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+
 def predict_toxicity_external(sequence: str, timeout: int = 120) -> float:
     if not sequence:
         raise ValueError("Sequence must not be empty.")
-
-    out = _run_command(TOXICITY_PREDICTOR_CMD, sequence, timeout=timeout).strip()
-    try:
-        return float(out)
-    except ValueError as exc:
-        raise RuntimeError("Toxicity predictor did not return a numeric value.") from exc
+    return predict_toxicity_external_batch([sequence], timeout=timeout)[0]
 
 
 @lru_cache(maxsize=1)
