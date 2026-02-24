@@ -22,9 +22,17 @@ def train(args):
     dataset = dataset.shuffle(1000).batch(args.batch_size, drop_remainder=True)
 
     #add 3 for PAD, UNK, START tokens
-    model = SeqVAE(vocab_size=len(vocab) + 3, emb_dim=args.emb_dim, enc_units=args.enc_units,
-                   latent_dim=args.latent_dim, dec_units=args.dec_units, max_len=args.max_len,
-                   dropout=args.dropout)
+    model = SeqVAE(
+        vocab_size=len(vocab) + 3,
+        emb_dim=args.emb_dim,
+        enc_units=args.enc_units,
+        latent_dim=args.latent_dim,
+        dec_units=args.dec_units,
+        max_len=args.max_len,
+        dropout=args.dropout,
+        gru_dropout=args.gru_dropout,
+        pooling_heads=args.pooling_heads,
+    )
     model.build((None, args.max_len))
     
     opt = tf.keras.optimizers.Adam(args.lr)
@@ -91,9 +99,11 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--emb_dim", type=int, default=128)
     parser.add_argument("--enc_units", type=int, default=256)
-    parser.add_argument("--latent_dim", type=int, default=64)
+    parser.add_argument("--latent_dim", type=int, default=128)
     parser.add_argument("--dec_units", type=int, default=256)
     parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument("--gru_dropout", type=float, default=0.1)
+    parser.add_argument("--pooling_heads", type=int, default=4)
     parser.add_argument("--kl_beta", type=float, default=0.05)
     parser.add_argument("--kl_beta_min", type=float, default=1e-3)
     parser.add_argument("--kl_warmup_frac", type=float, default=0.3)

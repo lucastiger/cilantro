@@ -11,15 +11,18 @@ class SeqVAE(Model):
         vocab_size,
         emb_dim=128,
         enc_units=256,
-        latent_dim=64,
+        latent_dim=128,
         dec_units=256,
         max_len=200,
         dropout=0.2,
+        gru_dropout=0.1,
+        pooling_heads=4,
     ):
         super().__init__()
         self.max_len = max_len
         self.latent_dim = latent_dim
         self.vocab_size = vocab_size
+        self.pooling_heads = pooling_heads
 
         # ---- Shared token/position embeddings ----
         self.embedding = layers.Embedding(vocab_size, emb_dim, mask_zero=True)
@@ -40,11 +43,17 @@ class SeqVAE(Model):
             activation="swish",
         )
         self.encoder_bi_gru = layers.Bidirectional(
-            layers.GRU(enc_units // 2, return_sequences=True)
+            layers.GRU(
+                enc_units // 2,
+                return_sequences=True,
+                dropout=gru_dropout,
+                recurrent_dropout=gru_dropout,
+            )
         )
         self.encoder_norm = layers.LayerNormalization()
         self.encoder_attn_score = layers.Dense(enc_units, activation="tanh")
-        self.encoder_attn_logits = layers.Dense(1)
+        self.encoder_attn_logits = layers.Dense(pooling_heads)
+        self.encoder_head_flatten = layers.Flatten()
         self.encoder_post_pool = layers.Dense(enc_units, activation="swish")
 
         self.z_mean = layers.Dense(latent_dim)
@@ -57,6 +66,8 @@ class SeqVAE(Model):
             dec_units,
             return_sequences=True,
             return_state=True,
+            dropout=gru_dropout,
+            recurrent_dropout=gru_dropout,
         )
         self.decoder_norm = layers.LayerNormalization()
         self.output_dense = layers.Dense(vocab_size)
@@ -84,7 +95,9 @@ class SeqVAE(Model):
         attn_logits = self.encoder_attn_logits(attn_hidden)
         attn_mask = (1.0 - mask[:, :, tf.newaxis]) * -1e9
         attn_weights = tf.nn.softmax(attn_logits + attn_mask, axis=1)
-        h = tf.reduce_sum(x_ctx * attn_weights, axis=1)
+        
+        head_context = tf.einsum("bsh,bsd->bhd", attn_weights, x_ctx)
+        h = self.encoder_head_flatten(head_context)
         h = self.encoder_post_pool(h)
 
         return self.z_mean(h), self.z_log_var(h)
