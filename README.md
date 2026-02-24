@@ -115,6 +115,25 @@ Notes:
 - If your training data differed, rebuild vocab from that same corpus before loading.
 - For full antigen optimization after loading, run `generate.py` with your checkpoint.
 
+
+Testing
+-------
+Unit tests (fast, mocked integrations):
+
+```
+pytest
+```
+
+Real scoring-tool smoke tests (runs actual MHCflurry / ToxinPred3 / ESM-2 path):
+
+```
+RUN_SCORING_TOOL_SMOKE_TESTS=1 pytest -m smoke tests/test_scoring_tool_smoke.py
+```
+
+Notes:
+- Smoke tests are opt-in because they require heavyweight runtime dependencies and model/tool availability.
+- `predict_esm2_mean_log_likelihood` smoke testing supports either `ESM2_LIKELIHOOD_CMD` or the local `fair-esm` + `torch` model path.
+
 License
 -------
 MIT. See LICENSE file for details.
