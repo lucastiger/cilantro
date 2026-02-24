@@ -3,34 +3,22 @@ from __future__ import annotations
 import scoring.prediction_tools as prediction_tools
 
 
-def test_mhci_command_path(monkeypatch):
-    monkeypatch.setattr(prediction_tools, "MHCI_PREDICTOR_CMD", "mhci_tool")
+class _FakeMHCFlurryPredictor:
+    supported_alleles = ["HLA-A*02:01", "HLA-B*07:02"]
 
-    def fake_run(command, input, check, stdout, stderr, text, timeout):
-        assert command == ["mhci_tool"]
-        assert "SIINFEKL" in input
-        return type("Result", (), {"stdout": "peptide\tic50\nSIINFEKL\t31.5\n", "stderr": ""})
-
-    monkeypatch.setattr(prediction_tools.subprocess, "run", fake_run)
-    out = prediction_tools.predict_mhci_ic50s(["SIINFEKL"])
-    assert out["SIINFEKL"] == 31.5
+    def predict(self, peptides, allele):
+        assert allele in self.supported_alleles
+        return [10.0 + i for i, _ in enumerate(peptides)]
 
 
-def test_plddt_and_folding_command_paths(monkeypatch):
-    monkeypatch.setattr(prediction_tools, "PLDDT_PREDICTOR_CMD", "plddt_tool")
-    monkeypatch.setattr(prediction_tools, "FOLDING_PREDICTOR_CMD", "fold_tool")
+def test_mhcflurry_kd_matrix(monkeypatch):
+    monkeypatch.setattr(prediction_tools, "_mhcflurry_predictor", lambda: _FakeMHCFlurryPredictor())
 
-    def fake_run(command, input, check, stdout, stderr, text, timeout):
-        if command == ["plddt_tool"]:
-            return type("Result", (), {"stdout": "78.3\n", "stderr": ""})
-        if command == ["fold_tool"]:
-            return type("Result", (), {"stdout": "-8.1\n", "stderr": ""})
-        raise AssertionError(f"unexpected command: {command}")
+    out = prediction_tools.predict_mhcflurry_kd_matrix(["SIINFEKL", "LLFGYPVYV"], alleles=["A*02:01"])
 
-    monkeypatch.setattr(prediction_tools.subprocess, "run", fake_run)
-
-    assert prediction_tools.predict_plddt_from_esmfold("MKTAYIAKQ") == 78.3
-    assert prediction_tools.predict_folding_energy_foldx("MKTAYIAKQ") == -8.1
+    assert list(out.keys()) == ["HLA-A*02:01"]
+    assert out["HLA-A*02:01"]["SIINFEKL"] == 10.0
+    assert out["HLA-A*02:01"]["LLFGYPVYV"] == 11.0
 
 
 def test_esm2_likelihood_command_path(monkeypatch):
