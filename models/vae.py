@@ -95,7 +95,7 @@ class SeqVAE(Model):
         attn_logits = self.encoder_attn_logits(attn_hidden)
         attn_mask = (1.0 - mask[:, :, tf.newaxis]) * -1e9
         attn_weights = tf.nn.softmax(attn_logits + attn_mask, axis=1)
-
+        
         head_context = tf.einsum("bsh,bsd->bhd", attn_weights, x_ctx)
         h = self.encoder_head_flatten(head_context)
         h = self.encoder_post_pool(h)
