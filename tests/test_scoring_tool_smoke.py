@@ -38,6 +38,12 @@ def _require_command_available(command_str: str) -> None:
 
 
 @pytest.mark.smoke
+@pytest.mark.filterwarnings(
+    "ignore:Transparent hugepages are not enabled:UserWarning:jax._src.cloud_tpu_init"
+)
+@pytest.mark.filterwarnings(
+    "ignore:Downcasting behavior in `replace` is deprecated:FutureWarning:mhcflurry.amino_acid"
+)
 def test_mhcflurry_real_predictor_smoke():
     _require_smoke_flag()
 

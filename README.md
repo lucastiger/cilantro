@@ -140,6 +140,7 @@ Unit tests (fast, mocked integrations):
 Real scoring-tool smoke tests (runs actual MHCflurry / ToxinPred3 / ESM-2 path):
 
 ```
+!bash cilantro/scripts/setup_scoring_smoke_deps.sh
 !RUN_SCORING_TOOL_SMOKE_TESTS=1 pytest -m smoke cilantro/tests/test_scoring_tool_smoke.py
 ```
 
