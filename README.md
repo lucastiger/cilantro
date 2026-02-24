@@ -11,39 +11,52 @@ and CMA-ES latent space optimization.
 
 Quickstart
 ----------
-1) Download protein sequences from NCBI (set an email for Entrez):
+1) Clone the repo:
 
 ```
-export NCBI_EMAIL="you@example.com"
-python data/ncbi_downloader.py \
+!git clone https://github.com/lucastiger/cilantro.git
+!cd cilantro/
+```
+
+2) Install dependencies:
+
+```
+!pip install -r cilantro/requirements.txt
+```
+
+3) Download protein sequences from NCBI (set an email for Entrez):
+
+```
+%env NCBI_EMAIL="you@example.com"
+!python cilantro/data/ncbi_downloader.py \
   --taxon "Influenza A virus" \
-  --out_fasta data/influenza_a_proteins.fasta \
+  --out_fasta cilantro/data/influenza_a_proteins.fasta \
   --max_records 500
 ```
 
-2) Train the VAE:
+4) Train the VAE:
 
 ```
-python train.py \
-  --input_fasta data/influenza_a_proteins.fasta \
-  --epochs 2 \
+!python cilantro/train.py \
+  --input_fasta cilantro/data/influenza_a_proteins.fasta \
+  --epochs 20 \
   --batch_size 4 \
   --max_len 200 \
   --ckpt_dir checkpoints
 ```
 
-3) Generate and evaluate candidates:
+5) Generate and evaluate candidates:
 
 ```
-python generate.py \
-  --input_fasta data/influenza_a_proteins.fasta \
+!python cilantro/generate.py \
+  --input_fasta cilantro/data/influenza_a_proteins.fasta \
   --ckpt checkpoints/vae_epoch1.weights.h5 \
   --max_len 200 \
   --generations 50 \
   --popsize 16 \
   --output_json outputs/best.json
 
-python evaluate.py \
+!python cilantro/evaluate.py \
   --seq_file outputs/best.json \
   --output_json final_scores.json
 ```
@@ -121,13 +134,13 @@ Testing
 Unit tests (fast, mocked integrations):
 
 ```
-pytest
+!pytest
 ```
 
 Real scoring-tool smoke tests (runs actual MHCflurry / ToxinPred3 / ESM-2 path):
 
 ```
-RUN_SCORING_TOOL_SMOKE_TESTS=1 pytest -m smoke tests/test_scoring_tool_smoke.py
+!RUN_SCORING_TOOL_SMOKE_TESTS=1 pytest -m smoke cilantro/tests/test_scoring_tool_smoke.py
 ```
 
 Notes:
