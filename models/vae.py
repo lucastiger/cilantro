@@ -43,7 +43,9 @@ class SeqVAE(Model):
             layers.GRU(enc_units // 2, return_sequences=True)
         )
         self.encoder_norm = layers.LayerNormalization()
-        self.encoder_pool = layers.GlobalAveragePooling1D()
+        self.encoder_attn_score = layers.Dense(enc_units, activation="tanh")
+        self.encoder_attn_logits = layers.Dense(1)
+        self.encoder_post_pool = layers.Dense(enc_units, activation="swish")
 
         self.z_mean = layers.Dense(latent_dim)
         self.z_log_var = layers.Dense(latent_dim)
@@ -78,12 +80,12 @@ class SeqVAE(Model):
         x_ctx = self.encoder_norm(x_ctx + x_local)
 
         mask = tf.cast(tf.not_equal(x, PAD_ID), tf.float32)
-        mask = tf.expand_dims(mask, axis=-1)
-        x_masked = x_ctx * mask
-        h = self.encoder_pool(x_masked)
-
-        denom = tf.reduce_sum(mask, axis=1) + 1e-6
-        h = h * (tf.cast(self.max_len, tf.float32) / denom)
+        attn_hidden = self.encoder_attn_score(x_ctx)
+        attn_logits = self.encoder_attn_logits(attn_hidden)
+        attn_mask = (1.0 - mask[:, :, tf.newaxis]) * -1e9
+        attn_weights = tf.nn.softmax(attn_logits + attn_mask, axis=1)
+        h = tf.reduce_sum(x_ctx * attn_weights, axis=1)
+        h = self.encoder_post_pool(h)
 
         return self.z_mean(h), self.z_log_var(h)
 
@@ -105,7 +107,7 @@ class SeqVAE(Model):
         h_seq = self.decoder_norm(h_seq)
         return self.output_dense(h_seq)
 
-    def _decode_autoregressive(self, z):
+    def _decode_autoregressive(self, z, temperature=1.0, top_k=0, greedy=False):
         batch = tf.shape(z)[0]
         init_h = self.latent_to_init_h(z)
         z_context = self.latent_to_context(z)[:, tf.newaxis, :]
@@ -123,14 +125,40 @@ class SeqVAE(Model):
             out = self.decoder_norm(out)
             step_logits = self.output_dense(out)
             all_logits.append(step_logits)
-            token = tf.cast(tf.argmax(step_logits, axis=-1), tf.int32)
+
+            sampling_logits = step_logits
+            if temperature != 1.0:
+                sampling_logits = sampling_logits / tf.maximum(temperature, 1e-6)
+            if top_k and top_k > 0:
+                k = tf.minimum(top_k, self.vocab_size)
+                topk = tf.math.top_k(sampling_logits[:, 0, :], k=k)
+                min_topk = topk.values[:, -1][:, tf.newaxis]
+                mask = tf.cast(sampling_logits[:, 0, :] < min_topk, sampling_logits.dtype)
+                filtered = sampling_logits[:, 0, :] + mask * -1e9
+                sampling_logits = filtered[:, tf.newaxis, :]
+
+            if greedy:
+                token = tf.cast(tf.argmax(sampling_logits, axis=-1), tf.int32)
+            else:
+                sampled = tf.random.categorical(sampling_logits[:, 0, :], num_samples=1)
+                token = tf.cast(sampled, tf.int32)
 
         return tf.concat(all_logits, axis=1)
 
-    def decode(self, z, target_ids=None, training=False):
+    def decode(
+        self,
+        z,
+        target_ids=None,
+        training=False,
+        temperature=1.0,
+        top_k=0,
+        greedy=False,
+    ):
         if target_ids is not None:
             return self._decode_teacher_forcing(z, target_ids, training=training)
-        return self._decode_autoregressive(z)
+        return self._decode_autoregressive(
+            z, temperature=temperature, top_k=top_k, greedy=greedy
+        )
 
     def call(self, x, training=False):
         mean, log_var = self.encode(x, training=training)
@@ -139,7 +167,7 @@ class SeqVAE(Model):
         return logits, mean, log_var
 
 
-def vae_loss(x, logits, mean, log_var, beta=1e-3):
+def vae_loss(x, logits, mean, log_var, beta=0.05, kl_capacity=0.0):
     token_loss = tf.keras.losses.sparse_categorical_crossentropy(
         x, logits, from_logits=True
     )
@@ -149,5 +177,5 @@ def vae_loss(x, logits, mean, log_var, beta=1e-3):
     kl = -0.5 * tf.reduce_mean(
         tf.reduce_sum(1 + log_var - tf.square(mean) - tf.exp(log_var), axis=1)
     )
-
-    return recon + beta * kl, recon, kl
+    kl_penalty = tf.abs(kl - kl_capacity)
+    return recon + beta * kl_penalty, recon, kl
