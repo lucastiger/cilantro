@@ -60,3 +60,19 @@ def test_toxicity_command_not_found(monkeypatch):
         assert "Command not found" in str(exc)
     else:
         raise AssertionError("Expected RuntimeError")
+
+
+def test_toxicity_batch_toxinpred3_command(monkeypatch):
+    monkeypatch.setattr(prediction_tools, "TOXICITY_PREDICTOR_CMD", "toxinpred3")
+
+    def fake_run(command, check, stdout, stderr, text, timeout):
+        assert command[0] == "toxinpred3"
+        out_path = command[command.index("-o") + 1]
+        with open(out_path, "w", encoding="utf-8") as handle:
+            handle.write("Hybrid Score\n0.43\n0.0\n")
+        return type("Result", (), {"stdout": "", "stderr": ""})
+
+    monkeypatch.setattr(prediction_tools.subprocess, "run", fake_run)
+
+    out = prediction_tools.predict_toxicity_external_batch(["ACDEFGHIKLMNPQ", "RRFFLLRRFF"])
+    assert out == [0.43, 0.0]

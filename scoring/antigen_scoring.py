@@ -8,12 +8,14 @@ from scoring.prediction_tools import (
     parse_allele_frequencies_env,
     predict_esm2_mean_log_likelihood,
     predict_mhcflurry_kd_matrix,
-    predict_toxicity_external,
+    predict_toxicity_external_batch,
 )
 ESM2_LOG_LIKELIHOOD_BEST = -0.5
 ESM2_LOG_LIKELIHOOD_WORST = -4.0
 TOXICITY_WORST = 0.3
 KD_BINDING_THRESHOLD_NM = 500.0
+TOXICITY_WINDOW_SIZE = 15
+TOXICITY_BETA = 10.0
 
 
 def kd_contribution(kd_nm: float) -> float:
@@ -127,8 +129,41 @@ def predict_immunogenicity(seq: str) -> float:
 def predict_esm2_sequence_log_likelihood(seq: str) -> float:
     return predict_esm2_mean_log_likelihood(seq)
 
-def predict_toxicity(seq: str) -> float:
-    return predict_toxicity_external(seq)
+
+def _toxicity_windows(seq: str, window_size: int = TOXICITY_WINDOW_SIZE) -> List[str]:
+    if window_size <= 0:
+        raise ValueError("window_size must be > 0")
+    if len(seq) <= window_size:
+        return [seq]
+    return [seq[i:i + window_size] for i in range(0, len(seq) - window_size + 1)]
+
+
+def toxicity_softmax_score(window_toxicities: List[float], beta: float = TOXICITY_BETA) -> float:
+    if not window_toxicities:
+        return 0.0
+    if beta <= 0:
+        raise ValueError("beta must be > 0")
+
+    tox = [max(0.0, min(float(t), 1.0)) for t in window_toxicities]
+    scaled = [beta * t for t in tox]
+    m = max(scaled)
+    logsumexp = m + math.log(sum(math.exp(x - m) for x in scaled))
+    raw = logsumexp / beta
+
+    # Normalize away dependence on number of windows so the score remains [0, 1].
+    normalization_offset = math.log(len(tox)) / beta
+    normalized = raw - normalization_offset
+    return max(0.0, min(normalized, 1.0))
+
+
+def predict_toxicity(
+    seq: str,
+    window_size: int = TOXICITY_WINDOW_SIZE,
+    beta: float = TOXICITY_BETA,
+) -> float:
+    windows = _toxicity_windows(seq, window_size=window_size)
+    window_toxicities = predict_toxicity_external_batch(windows)
+    return toxicity_softmax_score(window_toxicities, beta=beta)
     
 def score_antigen_candidate(seq: str, target_epitopes: set | None = None) -> float:
     """
