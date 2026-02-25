@@ -1,6 +1,7 @@
 # scoring/prediction_tools.py
 from __future__ import annotations
 
+import contextlib
 import csv
 import logging
 import os
@@ -170,12 +171,13 @@ def predict_mhcflurry_kd_matrix(
 
     result: Dict[str, Dict[str, float]] = {}
     for allele in filtered_alleles:
-        try:
-            affinities = predictor.predict(peptides=supported_peptides, allele=allele, verbose=0)
-        except TypeError as exc:
-            if "verbose" not in str(exc):
-                raise
-            affinities = predictor.predict(peptides=supported_peptides, allele=allele)
+        with open(os.devnull, "w", encoding="utf-8") as devnull, contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+            try:
+                affinities = predictor.predict(peptides=supported_peptides, allele=allele, verbose=0)
+            except TypeError as exc:
+                if "verbose" not in str(exc):
+                    raise
+                affinities = predictor.predict(peptides=supported_peptides, allele=allele)
         result[allele] = {
             peptide: float(kd)
             for peptide, kd in zip(supported_peptides, affinities)

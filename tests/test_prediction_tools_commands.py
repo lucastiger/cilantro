@@ -57,6 +57,24 @@ def test_mhcflurry_kd_matrix_falls_back_when_predictor_lacks_verbose(monkeypatch
     out = prediction_tools.predict_mhcflurry_kd_matrix(["SIINFEKL"], alleles=["A*02:01"])
     assert out == {"HLA-A*02:01": {"SIINFEKL": 42.0}}
 
+
+def test_mhcflurry_kd_matrix_suppresses_predictor_progress_output(monkeypatch, capsys):
+    class _NoisyLegacyPredictor:
+        supported_alleles = ["HLA-A*02:01"]
+
+        def predict(self, peptides, allele):
+            print("2/2 [==============================] - 0s 17ms/step")
+            return [7.0 for _ in peptides]
+
+    monkeypatch.setattr(prediction_tools, "_mhcflurry_predictor", lambda: _NoisyLegacyPredictor())
+
+    out = prediction_tools.predict_mhcflurry_kd_matrix(["SIINFEKL"], alleles=["A*02:01"])
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert out == {"HLA-A*02:01": {"SIINFEKL": 7.0}}
+
 def test_esm2_likelihood_command_path(monkeypatch):
     monkeypatch.setattr(prediction_tools, "ESM2_LIKELIHOOD_CMD", "esm2_ll_tool")
 
