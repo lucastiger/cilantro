@@ -78,7 +78,7 @@ def _epitope_immunogenicity_score(
 def find_top_epitopes(
     fasta_path: str,
     min_len: int = 5,
-    max_len: int = 35,
+    max_len: int = 15,
     top_k: int = 20,
     progress_callback: Callable[[str, Dict], None] | None = None,
 ) -> List[Dict]:
