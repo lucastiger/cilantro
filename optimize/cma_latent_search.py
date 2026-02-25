@@ -37,6 +37,7 @@ def latent_optimize(
     for gen in range(generations):
         solutions = es.ask()
         losses = []
+        generation_candidates = []
 
         for idx, z_vec in enumerate(solutions, start=1):
             z = np.array(z_vec, dtype=np.float32)[None, :]
@@ -46,6 +47,7 @@ def latent_optimize(
 
             score = score_antigen_candidate(seq, target_epitopes)
             losses.append(-score)
+            generation_candidates.append({"sequence": seq, "score": score})
 
             if best is None or score > best["score"]:
                 best = {
@@ -70,6 +72,12 @@ def latent_optimize(
 
         es.tell(solutions, losses)
 
+        top_candidates = sorted(
+            generation_candidates,
+            key=lambda candidate: candidate["score"],
+            reverse=True,
+        )[:10]
+
         if progress_callback:
             progress_callback(
                 "generation_complete",
@@ -78,6 +86,7 @@ def latent_optimize(
                     "generation": gen + 1,
                     "generations": generations,
                     "best_score": best["score"] if best else None,
+                    "top_candidates": top_candidates,
                 },
             )
 
