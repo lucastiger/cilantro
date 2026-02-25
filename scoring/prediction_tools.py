@@ -170,7 +170,12 @@ def predict_mhcflurry_kd_matrix(
 
     result: Dict[str, Dict[str, float]] = {}
     for allele in filtered_alleles:
-        affinities = predictor.predict(peptides=supported_peptides, allele=allele)
+        try:
+            affinities = predictor.predict(peptides=supported_peptides, allele=allele, verbose=0)
+        except TypeError as exc:
+            if "verbose" not in str(exc):
+                raise
+            affinities = predictor.predict(peptides=supported_peptides, allele=allele)
         result[allele] = {
             peptide: float(kd)
             for peptide, kd in zip(supported_peptides, affinities)

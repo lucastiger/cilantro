@@ -6,8 +6,9 @@ import scoring.prediction_tools as prediction_tools
 class _FakeMHCFlurryPredictor:
     supported_alleles = ["HLA-A*02:01", "HLA-B*07:02"]
 
-    def predict(self, peptides, allele):
+    def predict(self, peptides, allele, verbose=None):
         assert allele in self.supported_alleles
+        assert verbose == 0
         return [10.0 + i for i, _ in enumerate(peptides)]
 
 
@@ -41,6 +42,20 @@ def test_mhcflurry_kd_matrix_returns_empty_when_all_unsupported(monkeypatch):
     out = prediction_tools.predict_mhcflurry_kd_matrix(["A" * 25], alleles=["A*02:01"])
 
     assert out == {}
+
+
+def test_mhcflurry_kd_matrix_falls_back_when_predictor_lacks_verbose(monkeypatch):
+    class _LegacyPredictor:
+        supported_alleles = ["HLA-A*02:01"]
+
+        def predict(self, peptides, allele):
+            assert allele == "HLA-A*02:01"
+            return [42.0 for _ in peptides]
+
+    monkeypatch.setattr(prediction_tools, "_mhcflurry_predictor", lambda: _LegacyPredictor())
+
+    out = prediction_tools.predict_mhcflurry_kd_matrix(["SIINFEKL"], alleles=["A*02:01"])
+    assert out == {"HLA-A*02:01": {"SIINFEKL": 42.0}}
 
 def test_esm2_likelihood_command_path(monkeypatch):
     monkeypatch.setattr(prediction_tools, "ESM2_LIKELIHOOD_CMD", "esm2_ll_tool")
