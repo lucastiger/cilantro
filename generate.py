@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+from pathlib import Path
 
 import tensorflow as tf
 
@@ -8,6 +9,15 @@ from models.vae import SeqVAE
 from optimize.cma_latent_search import latent_optimize
 from scoring.find_top_epitopes import find_top_epitopes
 from utils.seq_utils import build_vocab_and_encode, load_fasta_as_sequences
+
+
+def _resolve_output_path(output_json: str) -> Path:
+    output_path = Path(output_json)
+    if output_path.is_absolute():
+        return output_path
+
+    script_dir = Path(__file__).resolve().parent
+    return script_dir / output_path
 
 
 def _build_progress_reporter(enabled: bool, per_candidate: bool):
@@ -132,10 +142,11 @@ def main(args):
     print(best)
 
     if args.output_json:
-        os.makedirs(os.path.dirname(args.output_json) or ".", exist_ok=True)
-        with open(args.output_json, "w") as f:
+        output_path = _resolve_output_path(args.output_json)
+        os.makedirs(output_path.parent, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump([best], f, indent=2)
-        print(f"Wrote {args.output_json}")
+        print(f"Wrote {output_path}")
 
 
 if __name__ == "__main__":
@@ -157,7 +168,11 @@ if __name__ == "__main__":
     parser.add_argument("--sigma", type=float, default=0.5)
     parser.add_argument("--popsize", type=int, default=16)
     parser.add_argument("--generations", type=int, default=50)
-    parser.add_argument("--output_json", default="outputs/best.json")
+    parser.add_argument(
+        "--output_json",
+        default="outputs/best.json",
+        help="Output JSON path. Relative paths are resolved from this script's directory.",
+    )
     parser.add_argument(
         "--show_progress",
         action="store_true",
