@@ -21,6 +21,27 @@ def test_mhcflurry_kd_matrix(monkeypatch):
     assert out["HLA-A*02:01"]["LLFGYPVYV"] == 11.0
 
 
+
+
+def test_mhcflurry_kd_matrix_skips_unsupported_lengths(monkeypatch):
+    monkeypatch.setattr(prediction_tools, "_mhcflurry_predictor", lambda: _FakeMHCFlurryPredictor())
+
+    out = prediction_tools.predict_mhcflurry_kd_matrix(
+        ["SIINFEKL", "A" * 20],
+        alleles=["A*02:01"],
+    )
+
+    assert list(out.keys()) == ["HLA-A*02:01"]
+    assert list(out["HLA-A*02:01"].keys()) == ["SIINFEKL"]
+
+
+def test_mhcflurry_kd_matrix_returns_empty_when_all_unsupported(monkeypatch):
+    monkeypatch.setattr(prediction_tools, "_mhcflurry_predictor", lambda: _FakeMHCFlurryPredictor())
+
+    out = prediction_tools.predict_mhcflurry_kd_matrix(["A" * 25], alleles=["A*02:01"])
+
+    assert out == {}
+
 def test_esm2_likelihood_command_path(monkeypatch):
     monkeypatch.setattr(prediction_tools, "ESM2_LIKELIHOOD_CMD", "esm2_ll_tool")
 
