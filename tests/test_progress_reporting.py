@@ -94,5 +94,14 @@ def test_latent_optimize_reports_generation_progress(monkeypatch):
     assert labels[0] == "start"
     assert labels.count("candidate_evaluated") == 4
     assert labels.count("generation_complete") == 2
+    generation_events = [payload for event, payload in events if event == "generation_complete"]
+    assert generation_events[0]["top_candidates"] == [
+        {"sequence": "AAA", "score": 0.4},
+        {"sequence": "AAA", "score": 0.1},
+    ]
+    assert generation_events[1]["top_candidates"] == [
+        {"sequence": "AAA", "score": 0.3},
+        {"sequence": "AAA", "score": 0.2},
+    ]
     assert labels[-1] == "complete"
     assert best["score"] == 0.4

@@ -53,6 +53,11 @@ def _build_progress_reporter(enabled: bool, per_candidate: bool):
                     f"[optimize] generation {payload['generation']}/{payload['generations']} complete "
                     f"best={payload['best_score']:.4f}"
                 )
+                for rank, candidate in enumerate(payload.get("top_candidates", []), start=1):
+                    print(
+                        f"  #{rank}: score={candidate['score']:.4f} "
+                        f"sequence={candidate['sequence']}"
+                    )
             elif event == "complete":
                 best = payload.get("best")
                 if best:
