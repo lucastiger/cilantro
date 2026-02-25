@@ -90,10 +90,23 @@ def main(args):
 
     # Flatten epitope sequence set
     target_epitopes = set()
+    epitope_scores = {}
     for ep in top_epitopes:
         target_epitopes |= ep["sequences"]
+        for sequence, score in ep.get("epitope_scores", {}).items():
+            epitope_scores[sequence] = max(epitope_scores.get(sequence, 0.0), score)
 
     print(f"Identified {len(target_epitopes)} conserved epitope variants")
+    sorted_epitope_scores = sorted(epitope_scores.items(), key=lambda item: item[1], reverse=True)
+    if sorted_epitope_scores:
+        print("Top epitope scores:")
+        for sequence, score in sorted_epitope_scores:
+            print(f"  {sequence}: {score:.4f}")
+
+    if args.top_n_epitopes and sorted_epitope_scores:
+        selected_n = min(args.top_n_epitopes, len(sorted_epitope_scores))
+        target_epitopes = {sequence for sequence, _ in sorted_epitope_scores[:selected_n]}
+        print(f"Restricting optimization targets to top {selected_n} epitopes by score")
 
     # ---- Seed latent ----
     z_mean, _ = model.encode(tf.constant(tokenized[:1]))
@@ -129,6 +142,12 @@ if __name__ == "__main__":
     parser.add_argument("--min_ep_len", type=int, default=5)
     parser.add_argument("--max_ep_len", type=int, default=35)
     parser.add_argument("--top_k", type=int, default=10)
+    parser.add_argument(
+        "--top_n_epitopes",
+        type=int,
+        default=None,
+        help="Restrict optimization targets to the top N identified epitopes by score.",
+    )
 
     parser.add_argument("--sigma", type=float, default=0.5)
     parser.add_argument("--popsize", type=int, default=16)
@@ -146,4 +165,6 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+    if args.top_n_epitopes is not None and args.top_n_epitopes <= 0:
+        parser.error("--top_n_epitopes must be a positive integer")
     main(args)
