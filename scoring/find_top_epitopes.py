@@ -1,5 +1,5 @@
 # scoring/find_top_epitopes.py
-from typing import Dict, List
+from typing import Callable, Dict, List
 from collections import Counter
 import math
 from Bio import SeqIO
@@ -80,6 +80,7 @@ def find_top_epitopes(
     min_len: int = 5,
     max_len: int = 35,
     top_k: int = 20,
+    progress_callback: Callable[[str, Dict], None] | None = None,
 ) -> List[Dict]:
     """
     Returns a list of top conserved epitopes across window sizes.
@@ -109,6 +110,18 @@ def find_top_epitopes(
         return []
 
     max_len = min(max_len, L)
+    total_windows = sum((L - window + 1) for window in range(min_len, max_len + 1))
+
+    if progress_callback:
+        progress_callback(
+            "start",
+            {
+                "stage": "epitope_identification",
+                "total_windows": total_windows,
+                "window_range": [min_len, max_len],
+                "sequence_count": len(seqs),
+            },
+        )
 
     supported_alleles = mhcflurry_supported_alleles()
     supported_allele_set = set(supported_alleles)
@@ -137,12 +150,26 @@ def find_top_epitopes(
         entropy_prefix.append(entropy_prefix[-1] + value)
 
     unique_epitopes = set()
+    processed_windows = 0
+    scored_windows = 0
     for window in range(min_len, max_len + 1):
         for start in range(0, L - window + 1):
             unique_epitopes.update(
                 s[start:start + window]
                 for s in seqs
                 if len(s) >= start + window
+            )
+            processed_windows += 1
+        if progress_callback:
+            progress_callback(
+                "window_scan",
+                {
+                    "stage": "epitope_identification",
+                    "window": window,
+                    "processed_windows": processed_windows,
+                    "total_windows": total_windows,
+                    "percent_complete": processed_windows / total_windows if total_windows else 1.0,
+                },
             )
 
     epitope_score_cache: Dict[str, float] = {}
@@ -186,6 +213,32 @@ def find_top_epitopes(
                 "sequences": epitope_set,
             })
 
+        scored_windows += (L - window + 1)
+        if progress_callback:
+            progress_callback(
+                "window_score",
+                {
+                    "stage": "epitope_identification",
+                    "window": window,
+                    "processed_windows": scored_windows,
+                    "total_windows": total_windows,
+                    "percent_complete": scored_windows / total_windows if total_windows else 1.0,
+                },
+            )
+
     # higher overall_score = more conserved + better binding affinity
     results.sort(key=lambda x: x["overall_score"], reverse=True)
-    return results[:top_k]
+    top_results = results[:top_k]
+
+    if progress_callback:
+        progress_callback(
+            "complete",
+            {
+                "stage": "epitope_identification",
+                "selected": len(top_results),
+                "total_candidates": len(results),
+                "unique_epitopes": len(unique_epitopes),
+            },
+        )
+
+    return top_results
