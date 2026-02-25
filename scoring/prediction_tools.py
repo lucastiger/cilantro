@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import logging
 import os
 import shlex
 import subprocess
@@ -18,6 +19,9 @@ ESM2_LIKELIHOOD_CMD = os.getenv("ESM2_LIKELIHOOD_CMD", "")
 # Approximate global class-I HLA allele frequencies (used as defaults when
 # MHC_ALLELE_FREQUENCIES is not provided). Values are treated as relative
 # weights and are renormalized during scoring.
+MHCFLURRY_MIN_PEPTIDE_LENGTH = 5
+MHCFLURRY_MAX_PEPTIDE_LENGTH = 15
+
 DEFAULT_MHC_ALLELE_FREQUENCIES = {
     "HLA-A*01:01": 0.165,
     "HLA-A*02:01": 0.259,
@@ -136,6 +140,22 @@ def predict_mhcflurry_kd_matrix(
     if not peptides_list:
         return {}
 
+    supported_peptides = [
+        pep
+        for pep in peptides_list
+        if MHCFLURRY_MIN_PEPTIDE_LENGTH <= len(pep) <= MHCFLURRY_MAX_PEPTIDE_LENGTH
+    ]
+    unsupported_count = len(peptides_list) - len(supported_peptides)
+    if unsupported_count:
+        logging.warning(
+            "%d peptides have lengths outside of supported range [%d, %d] and will be skipped.",
+            unsupported_count,
+            MHCFLURRY_MIN_PEPTIDE_LENGTH,
+            MHCFLURRY_MAX_PEPTIDE_LENGTH,
+        )
+    if not supported_peptides:
+        return {}
+
     predictor = _mhcflurry_predictor()
     supported = {_normalize_allele_name(a) for a in predictor.supported_alleles}
 
@@ -150,8 +170,11 @@ def predict_mhcflurry_kd_matrix(
 
     result: Dict[str, Dict[str, float]] = {}
     for allele in filtered_alleles:
-        affinities = predictor.predict(peptides=peptides_list, allele=allele)
-        result[allele] = {peptide: float(kd) for peptide, kd in zip(peptides_list, affinities)}
+        affinities = predictor.predict(peptides=supported_peptides, allele=allele)
+        result[allele] = {
+            peptide: float(kd)
+            for peptide, kd in zip(supported_peptides, affinities)
+        }
     return result
 
 
