@@ -93,6 +93,7 @@ def find_top_epitopes(
         'epitope_immunogenicity': float,
         'overall_score': float,
         'sequences': set(str),
+        'epitope_scores': dict(str, float),
     }
     """
     seqs = load_sequences(fasta_path)
@@ -211,6 +212,10 @@ def find_top_epitopes(
                 "epitope_immunogenicity": avg_epitope_score,
                 "overall_score": overall_score,
                 "sequences": epitope_set,
+                "epitope_scores": {
+                    ep: epitope_score_cache.get(ep, 0.0)
+                    for ep in epitope_set
+                },
             })
 
         scored_windows += (L - window + 1)

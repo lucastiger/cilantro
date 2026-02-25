@@ -90,10 +90,17 @@ def main(args):
 
     # Flatten epitope sequence set
     target_epitopes = set()
+    epitope_scores = {}
     for ep in top_epitopes:
         target_epitopes |= ep["sequences"]
+        for sequence, score in ep.get("epitope_scores", {}).items():
+            epitope_scores[sequence] = max(epitope_scores.get(sequence, 0.0), score)
 
     print(f"Identified {len(target_epitopes)} conserved epitope variants")
+    if epitope_scores:
+        print("Top epitope scores:")
+        for sequence, score in sorted(epitope_scores.items(), key=lambda item: item[1], reverse=True):
+            print(f"  {sequence}: {score:.4f}")
 
     # ---- Seed latent ----
     z_mean, _ = model.encode(tf.constant(tokenized[:1]))
