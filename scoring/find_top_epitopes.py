@@ -101,45 +101,72 @@ def find_top_epitopes(
     L = min(len(s) for s in seqs)
     results = []
 
-    epitope_score_cache: Dict[str, float] = {}
-    alleles = mhcflurry_supported_alleles()
+    if min_len <= 0 or max_len <= 0:
+        raise ValueError("Epitope lengths must be positive.")
+    if min_len > max_len:
+        raise ValueError("min_len must be <= max_len.")
+    if min_len > L:
+        return []
+
+    max_len = min(max_len, L)
+
+    supported_alleles = mhcflurry_supported_alleles()
+    supported_allele_set = set(supported_alleles)
     freq_map = parse_allele_frequencies_env()
+    freq_map = {
+        allele: freq
+        for allele, freq in freq_map.items()
+        if allele in supported_allele_set and freq > 0
+    }
     if not freq_map:
-        freq_map = default_allele_frequencies(alleles)
-    if not freq_map and alleles:
-        uniform = 1.0 / len(alleles)
-        freq_map = {allele: uniform for allele in alleles}
+        freq_map = default_allele_frequencies(supported_alleles)
+    if not freq_map and supported_alleles:
+        uniform = 1.0 / len(supported_alleles)
+        freq_map = {allele: uniform for allele in supported_alleles}
+
+    prediction_alleles = sorted(freq_map.keys())
+
+    # Entropy is independent of window boundaries, so compute once per position.
+    position_entropy = []
+    for i in range(L):
+        column = [s[i] for s in seqs if i < len(s) and s[i] != "-"]
+        position_entropy.append(shannon_entropy(column))
+
+    entropy_prefix = [0.0]
+    for value in position_entropy:
+        entropy_prefix.append(entropy_prefix[-1] + value)
+
+    unique_epitopes = set()
+    for window in range(min_len, max_len + 1):
+        for start in range(0, L - window + 1):
+            unique_epitopes.update(
+                s[start:start + window]
+                for s in seqs
+                if len(s) >= start + window
+            )
+
+    epitope_score_cache: Dict[str, float] = {}
+    if unique_epitopes and prediction_alleles:
+        kd_by_allele = predict_mhcflurry_kd_matrix(unique_epitopes, alleles=prediction_alleles)
+        for ep in unique_epitopes:
+            epitope_score_cache[ep] = _epitope_immunogenicity_score(
+                ep,
+                kd_by_allele,
+                freq_map,
+            )
+    else:
+        for ep in unique_epitopes:
+            epitope_score_cache[ep] = 0.0
 
     for window in range(min_len, max_len + 1):
         for start in range(0, L - window + 1):
-            entropies = []
-            for i in range(start, start + window):
-                column = [
-                    s[i] for s in seqs
-                    if i < len(s) and s[i] != "-"
-                ]
-                entropies.append(shannon_entropy(column))
-
-            avg_entropy = sum(entropies) / len(entropies)
+            avg_entropy = (entropy_prefix[start + window] - entropy_prefix[start]) / window
 
             epitope_set = {
                 s[start:start + window]
                 for s in seqs
                 if len(s) >= start + window
             }
-
-            missing_epitopes = [ep for ep in epitope_set if ep not in epitope_score_cache]
-            if missing_epitopes and alleles:
-                kd_by_allele = predict_mhcflurry_kd_matrix(missing_epitopes, alleles=alleles)
-                for ep in missing_epitopes:
-                    epitope_score_cache[ep] = _epitope_immunogenicity_score(
-                        ep,
-                        kd_by_allele,
-                        freq_map,
-                    )
-            elif missing_epitopes:
-                for ep in missing_epitopes:
-                    epitope_score_cache[ep] = 0.0
 
             epitope_scores = [
                 epitope_score_cache.get(ep, 0.0)
