@@ -3,8 +3,11 @@ import json
 import os
 from pathlib import Path
 
+import numpy as np
+
 from models.vae import ProteinSeqVAE
 from optimize.cma_latent_search import latent_optimize
+from scoring.antigen_scoring import score_antigen_candidate_with_breakdown
 from scoring.find_top_epitopes import find_top_epitopes
 from utils.seq_utils import build_vocab_and_encode, load_fasta_as_sequences
 
@@ -123,6 +126,57 @@ def _build_progress_reporter(enabled: bool, per_candidate: bool):
     return _report
 
 
+def _assemble_segmented_sequence(segment_results: list[dict], linker: str) -> str:
+    return linker.join(segment["sequence"] for segment in segment_results)
+
+
+def _optimize_segmented_antigen(
+    *,
+    model,
+    seed_latent,
+    target_epitopes: set,
+    sigma: float,
+    popsize: int,
+    generations: int,
+    segments: int,
+    segment_linker: str,
+    segment_seed_jitter: float,
+    progress_reporter,
+):
+    segment_results = []
+    seed_latent_np = np.asarray(seed_latent, dtype=np.float32)
+
+    for segment_idx in range(segments):
+        if segment_idx == 0 or segment_seed_jitter <= 0:
+            segment_seed = seed_latent_np
+        else:
+            noise = np.random.normal(0.0, segment_seed_jitter, size=seed_latent_np.shape)
+            segment_seed = seed_latent_np + noise.astype(np.float32)
+
+        best_segment = latent_optimize(
+            model=model,
+            seed_latent=segment_seed,
+            target_epitopes=target_epitopes,
+            sigma=sigma,
+            popsize=popsize,
+            generations=generations,
+            progress_callback=progress_reporter,
+        )
+        best_segment["segment_index"] = segment_idx + 1
+        segment_results.append(best_segment)
+
+    combined_sequence = _assemble_segmented_sequence(segment_results, linker=segment_linker)
+    combined_score_breakdown = score_antigen_candidate_with_breakdown(combined_sequence, target_epitopes)
+
+    return {
+        "sequence": combined_sequence,
+        "score": combined_score_breakdown["score"],
+        "score_breakdown": combined_score_breakdown,
+        "segments": segment_results,
+        "segment_linker": segment_linker,
+    }
+
+
 def main(args):
     progress_reporter = _build_progress_reporter(args.show_progress, args.progress_per_candidate)
 
@@ -167,15 +221,29 @@ def main(args):
     z_seed = z_mean[0]
 
     # ---- Optimize ----
-    best = latent_optimize(
-        model=model,
-        seed_latent=z_seed,
-        target_epitopes=target_epitopes,
-        sigma=args.sigma,
-        popsize=args.popsize,
-        generations=args.generations,
-        progress_callback=progress_reporter,
-    )
+    if args.segments == 1:
+        best = latent_optimize(
+            model=model,
+            seed_latent=z_seed,
+            target_epitopes=target_epitopes,
+            sigma=args.sigma,
+            popsize=args.popsize,
+            generations=args.generations,
+            progress_callback=progress_reporter,
+        )
+    else:
+        best = _optimize_segmented_antigen(
+            model=model,
+            seed_latent=z_seed,
+            target_epitopes=target_epitopes,
+            sigma=args.sigma,
+            popsize=args.popsize,
+            generations=args.generations,
+            segments=args.segments,
+            segment_linker=args.segment_linker,
+            segment_seed_jitter=args.segment_seed_jitter,
+            progress_reporter=progress_reporter,
+        )
 
     print("\nBest generated antigen:")
     print(best)
@@ -212,6 +280,24 @@ if __name__ == "__main__":
     parser.add_argument("--popsize", type=int, default=16)
     parser.add_argument("--generations", type=int, default=50)
     parser.add_argument(
+        "--segments",
+        type=int,
+        default=1,
+        help="Number of independently optimized 140-aa segments to concatenate into a final construct.",
+    )
+    parser.add_argument(
+        "--segment_linker",
+        type=str,
+        default="",
+        help="Optional amino-acid linker inserted between concatenated segments.",
+    )
+    parser.add_argument(
+        "--segment_seed_jitter",
+        type=float,
+        default=0.2,
+        help="Gaussian jitter stddev applied to latent seed for segments after the first.",
+    )
+    parser.add_argument(
         "--output_json",
         default="outputs/best.json",
         help="Output JSON path. Relative paths are resolved from this script's directory.",
@@ -230,4 +316,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.top_n_epitopes is not None and args.top_n_epitopes <= 0:
         parser.error("--top_n_epitopes must be a positive integer")
+    if args.segments <= 0:
+        parser.error("--segments must be a positive integer")
+    if args.segment_seed_jitter < 0:
+        parser.error("--segment_seed_jitter must be non-negative")
     main(args)

@@ -64,6 +64,36 @@ Quickstart
   --output_json final_scores.json
 ```
 
+Generating >140 aa constructs with segmented optimization (no retraining)
+--------------------------------------------------------------------------
+The bundled pretrained `protein-vae` adapter decodes fixed-length 140-aa segments.
+To build longer antigens without retraining, run multiple independent latent
+optimizations and concatenate the best segment from each run:
+
+```
+!python cilantro/generate.py \
+  --input_fasta cilantro/data/influenza_a_proteins.fasta \
+  --ckpt protein-vae/produce_sequences/models/metal16_nostruc \
+  --segments 3 \
+  --segment_linker GGGGS \
+  --segment_seed_jitter 0.2 \
+  --output_json outputs/best_segmented.json
+```
+
+How this strategy works:
+- `--segments N` runs CMA-ES optimization `N` times and collects one best sequence per run.
+- Segment 1 uses the original latent seed. Later segments perturb that seed with Gaussian
+  noise (`--segment_seed_jitter`) to increase sequence diversity across segments.
+- `--segment_linker` inserts a linker (for example `GGGGS`) between each segment.
+- The final concatenated sequence is rescored as a whole antigen and saved to output JSON,
+  along with per-segment metadata.
+
+Practical tips:
+- Start with `--segments 2` or `--segments 3`; more segments can increase optimization time.
+- Use a non-empty linker if you want to reduce boundary artifacts between segments.
+- Keep in mind this is a composition workaround: each segment is still produced by a
+  140-aa pretrained decoder.
+
 Using a saved `.weights.h5` VAE checkpoint in Google Colab
 ----------------------------------------------------------
 If you already trained a VAE and have a checkpoint file (for example
