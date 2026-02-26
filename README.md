@@ -9,6 +9,9 @@ End-to-end computational pipeline for discovering conserved, immunogenic epitope
 and generating de novo antigen candidates using a Variational Autoencoder (VAE)
 and CMA-ES latent space optimization. 
 
+> Note: `generate.py` now uses the pretrained PyTorch VAE from `protein-vae` (`metal16_nostruc`) for sequence encoding/decoding via `ProteinSeqVAE`.
+
+
 Quickstart
 ----------
 1) Clone the repo:
@@ -50,7 +53,7 @@ Quickstart
 ```
 !python cilantro/generate.py \
   --input_fasta cilantro/data/influenza_a_proteins.fasta \
-  --ckpt checkpoints/vae_epoch1.weights.h5 \
+  --ckpt protein-vae/produce_sequences/models/metal16_nostruc \
   --max_len 200 \
   --generations 50 \
   --popsize 16 \
