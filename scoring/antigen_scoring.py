@@ -1,5 +1,8 @@
 # scoring/antigen_scoring.py
 import math
+import os
+from collections import OrderedDict
+from functools import lru_cache
 from typing import Iterable, List
 
 from scoring.prediction_tools import (
@@ -21,6 +24,32 @@ BASE_SCORE_WEIGHT = 0.7
 SOFT_EPITOPE_WEIGHT = 0.3
 HARD_CONSTRAINT_WEIGHT = 0.0
 AMINO_ACID_ALPHABET = "ACDEFGHIKLMNPQRSTVWY"
+IMMUNOGENICITY_ALLELE_COVERAGE = 0.9
+IMMUNOGENICITY_MAX_ALLELES = 12
+TOXICITY_WINDOW_CACHE_MAXSIZE = 50000
+_TOXICITY_WINDOW_CACHE: OrderedDict[str, float] = OrderedDict()
+
+
+def _toxicity_windows_cached_scores(windows: list[str]) -> list[float]:
+    misses: list[str] = []
+    seen_misses: set[str] = set()
+    for window in windows:
+        if window in _TOXICITY_WINDOW_CACHE:
+            _TOXICITY_WINDOW_CACHE.move_to_end(window)
+            continue
+        if window not in seen_misses:
+            seen_misses.add(window)
+            misses.append(window)
+
+    if misses:
+        predicted = predict_toxicity_external_batch(misses)
+        for window, score in zip(misses, predicted):
+            _TOXICITY_WINDOW_CACHE[window] = score
+            _TOXICITY_WINDOW_CACHE.move_to_end(window)
+            while len(_TOXICITY_WINDOW_CACHE) > TOXICITY_WINDOW_CACHE_MAXSIZE:
+                _TOXICITY_WINDOW_CACHE.popitem(last=False)
+
+    return [_TOXICITY_WINDOW_CACHE.get(window, 0.0) for window in windows]
 
 
 def kd_contribution(kd_nm: float) -> float:
@@ -163,12 +192,57 @@ def _generate_peptides(seq: str, lengths: Iterable[int]) -> List[str]:
     return peptides
 
 
+def _immunogenicity_prediction_alleles(supported_alleles: list[str]) -> list[str]:
+    """Prefer the most frequent supported alleles to avoid unnecessary MHC predictions."""
+    freq_map = parse_allele_frequencies_env()
+    if not freq_map:
+        freq_map = default_allele_frequencies(supported_alleles)
+
+    if not freq_map:
+        return supported_alleles
+
+    supported_set = set(supported_alleles)
+    ranked = sorted(
+        (
+            (allele, max(0.0, float(freq)))
+            for allele, freq in freq_map.items()
+            if allele in supported_set
+        ),
+        key=lambda pair: pair[1],
+        reverse=True,
+    )
+    if not ranked:
+        return supported_alleles
+
+    coverage_target = float(os.getenv("IMMUNOGENICITY_ALLELE_COVERAGE", IMMUNOGENICITY_ALLELE_COVERAGE))
+    coverage_target = max(0.0, min(coverage_target, 1.0))
+    max_alleles = int(os.getenv("IMMUNOGENICITY_MAX_ALLELES", str(IMMUNOGENICITY_MAX_ALLELES)))
+    max_alleles = max(1, max_alleles)
+
+    total = sum(freq for _, freq in ranked)
+    if total <= 0:
+        return supported_alleles
+
+    selected: list[str] = []
+    cumulative = 0.0
+    for allele, freq in ranked:
+        selected.append(allele)
+        cumulative += freq
+        if len(selected) >= max_alleles:
+            break
+        if cumulative / total >= coverage_target:
+            break
+    return selected or supported_alleles
+
+
+@lru_cache(maxsize=4096)
 def predict_immunogenicity(seq: str) -> float:
-    peptides = _generate_peptides(seq, lengths=range(8, 12))
+    peptides = sorted(set(_generate_peptides(seq, lengths=range(8, 12))))
     if not peptides:
         return 0.0
 
-    alleles = mhcflurry_supported_alleles()
+    supported_alleles = mhcflurry_supported_alleles()
+    alleles = _immunogenicity_prediction_alleles(supported_alleles)
     kd_by_allele = predict_mhcflurry_kd_matrix(peptides, alleles=alleles)
     if not kd_by_allele:
         return 0.0
@@ -214,7 +288,7 @@ def predict_toxicity(
     beta: float = TOXICITY_BETA,
 ) -> float:
     windows = _toxicity_windows(seq, window_size=window_size)
-    window_toxicities = predict_toxicity_external_batch(windows)
+    window_toxicities = _toxicity_windows_cached_scores(windows)
     return toxicity_softmax_score(window_toxicities, beta=beta)
     
 def score_antigen_candidate(seq: str, target_epitopes: set | None = None) -> float:
