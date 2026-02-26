@@ -3,7 +3,7 @@ import numpy as np
 from typing import Callable
 
 from utils.seq_utils import decode_sequence_from_ids
-from scoring.antigen_scoring import score_antigen_candidate
+from scoring.antigen_scoring import score_antigen_candidate_with_breakdown
 
 
 def latent_optimize(
@@ -43,7 +43,8 @@ def latent_optimize(
             token_ids = model.decode(z)[0]
             seq = decode_sequence_from_ids(token_ids)
 
-            score = score_antigen_candidate(seq, target_epitopes)
+            score_breakdown = score_antigen_candidate_with_breakdown(seq, target_epitopes)
+            score = score_breakdown["score"]
             losses.append(-score)
             generation_candidates.append({"sequence": seq, "score": score})
 
@@ -51,8 +52,26 @@ def latent_optimize(
                 best = {
                     "sequence": seq,
                     "score": score,
-                    "generation": gen
+                    "generation": gen,
+                    "score_breakdown": score_breakdown,
                 }
+
+                if progress_callback:
+                    progress_callback(
+                        "new_best_candidate",
+                        {
+                            "stage": "antigen_optimization",
+                            "generation": gen + 1,
+                            "generations": generations,
+                            "sequence": seq,
+                            "score": score,
+                            "immunogenicity": score_breakdown["immunogenicity"],
+                            "esm2_sequence_log_likelihood": score_breakdown["esm2_sequence_log_likelihood"],
+                            "toxicity": score_breakdown["toxicity"],
+                            "soft_epitope": score_breakdown["soft_epitope"],
+                            "hard_epitope_constraint": score_breakdown["hard_epitope_constraint"],
+                        },
+                    )
 
             if progress_callback:
                 progress_callback(
