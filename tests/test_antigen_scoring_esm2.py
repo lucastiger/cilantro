@@ -20,13 +20,21 @@ def test_score_antigen_candidate_uses_esm2_not_folding_or_plddt(monkeypatch):
     assert score > 0.0
 
 
-def test_score_antigen_candidate_hard_epitope_constraint(monkeypatch):
+def test_score_antigen_candidate_hard_epitope_constraint_weight_is_disabled(monkeypatch):
     monkeypatch.setattr(antigen_scoring, "predict_immunogenicity", lambda seq: 1.0)
     monkeypatch.setattr(antigen_scoring, "predict_esm2_sequence_log_likelihood", lambda seq: -0.5)
     monkeypatch.setattr(antigen_scoring, "predict_toxicity", lambda seq: 0.0)
 
     score = antigen_scoring.score_antigen_candidate("AAAAAAAAAA", target_epitopes={"SIINFEKL"})
-    assert score == 0.0
+    assert score > 0.0
+
+
+def test_soft_epitope_reward_prefers_better_window_match():
+    weak_match = antigen_scoring.soft_epitope_reward("AAAAAAAAAA", {"SIINFEKL"})
+    strong_match = antigen_scoring.soft_epitope_reward("SIINFEKLAA", {"SIINFEKL"})
+    assert strong_match > weak_match
+    assert 0.0 <= weak_match <= 1.0
+    assert 0.0 <= strong_match <= 1.0
 
 
 def test_toxicity_softmax_score_is_normalized():
