@@ -16,6 +16,11 @@ TOXICITY_WORST = 0.3
 KD_BINDING_THRESHOLD_NM = 500.0
 TOXICITY_WINDOW_SIZE = 15
 TOXICITY_BETA = 10.0
+SOFT_EPITOPE_ALPHA = 8.0
+BASE_SCORE_WEIGHT = 0.7
+SOFT_EPITOPE_WEIGHT = 0.3
+HARD_CONSTRAINT_WEIGHT = 0.0
+AMINO_ACID_ALPHABET = "ACDEFGHIKLMNPQRSTVWY"
 
 
 def kd_contribution(kd_nm: float) -> float:
@@ -93,12 +98,59 @@ def antigen_score(immunogenicity, esm2_mean_log_likelihood, toxicity):
         0.15 * toxicity_term
     )
 
-def epitope_presence_score(seq: str, target_epitopes: set) -> float:
-    """
-    Fraction of target epitopes present in the sequence
-    """
-    hits = sum(1 for e in target_epitopes if e in seq)
-    return hits / len(target_epitopes) if target_epitopes else 0.0
+def has_any_target_epitope(seq: str, target_epitopes: set[str]) -> bool:
+    return any(epitope in seq for epitope in target_epitopes)
+
+
+def _peptide_one_hot_embedding(peptide: str) -> list[float]:
+    vectors: list[float] = []
+    for residue in peptide:
+        vectors.extend(1.0 if residue == aa else 0.0 for aa in AMINO_ACID_ALPHABET)
+    return vectors
+
+
+def _cosine_similarity(values_a: list[float], values_b: list[float]) -> float:
+    if len(values_a) != len(values_b) or not values_a:
+        return 0.0
+
+    dot = sum(a * b for a, b in zip(values_a, values_b))
+    norm_a = math.sqrt(sum(a * a for a in values_a))
+    norm_b = math.sqrt(sum(b * b for b in values_b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _max_window_cosine_similarity(seq: str, epitope: str) -> float:
+    if not epitope or len(seq) < len(epitope):
+        return 0.0
+
+    epitope_embed = _peptide_one_hot_embedding(epitope)
+    max_similarity = 0.0
+    epitope_len = len(epitope)
+
+    for start in range(0, len(seq) - epitope_len + 1):
+        window = seq[start:start + epitope_len]
+        similarity = _cosine_similarity(_peptide_one_hot_embedding(window), epitope_embed)
+        if similarity > max_similarity:
+            max_similarity = similarity
+    return max_similarity
+
+
+def soft_epitope_reward(
+    seq: str,
+    target_epitopes: set[str],
+    alpha: float = SOFT_EPITOPE_ALPHA,
+) -> float:
+    if not target_epitopes:
+        return 1.0
+    if alpha <= 0:
+        raise ValueError("alpha must be > 0")
+
+    max_similarity = max(_max_window_cosine_similarity(seq, epitope) for epitope in target_epitopes)
+    numerator = math.exp(alpha * max_similarity) - 1.0
+    denominator = math.exp(alpha) - 1.0
+    return numerator / denominator if denominator > 0 else 0.0
 
 
 def _generate_peptides(seq: str, lengths: Iterable[int]) -> List[str]:
@@ -166,16 +218,11 @@ def predict_toxicity(
     return toxicity_softmax_score(window_toxicities, beta=beta)
     
 def score_antigen_candidate(seq: str, target_epitopes: set | None = None) -> float:
-    """
-    HARD CONSTRAINT:
-    If no target epitope is present → score = 0
-    """
+    hard_constraint_satisfied = 1.0
+    ep_soft_reward = 1.0
     if target_epitopes:
-        ep_score = epitope_presence_score(seq, target_epitopes)
-        if ep_score == 0.0:
-            return 0.0
-    else:
-        ep_score = 1.0
+        hard_constraint_satisfied = 1.0 if has_any_target_epitope(seq, target_epitopes) else 0.0
+        ep_soft_reward = soft_epitope_reward(seq, target_epitopes)
 
     base = antigen_score(
         predict_immunogenicity(seq),
@@ -183,4 +230,8 @@ def score_antigen_candidate(seq: str, target_epitopes: set | None = None) -> flo
         predict_toxicity(seq),
     )
 
-    return 0.7 * base + 0.3 * ep_score
+    return (
+        BASE_SCORE_WEIGHT * base
+        + SOFT_EPITOPE_WEIGHT * ep_soft_reward
+        + HARD_CONSTRAINT_WEIGHT * hard_constraint_satisfied
+    )
