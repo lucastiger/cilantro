@@ -72,3 +72,33 @@ def test_predict_toxicity_reuses_cached_windows(monkeypatch):
 
     assert first == second
     assert calls["count"] == 1
+
+
+def test_antigen_score_components_match_antigen_score():
+    components = antigen_scoring.antigen_score_components(
+        immunogenicity=0.8428,
+        esm2_mean_log_likelihood=-0.3647,
+        toxicity=0.0295,
+    )
+
+    base = antigen_scoring.antigen_score(0.8428, -0.3647, 0.0295)
+    assert abs(base - components["base_score"]) < 1e-12
+
+
+def test_score_breakdown_includes_weighted_base_and_total(monkeypatch):
+    monkeypatch.setattr(antigen_scoring, "predict_immunogenicity", lambda seq: 0.8428)
+    monkeypatch.setattr(antigen_scoring, "predict_esm2_sequence_log_likelihood", lambda seq: -0.3647)
+    monkeypatch.setattr(antigen_scoring, "predict_toxicity", lambda seq: 0.0295)
+    monkeypatch.setattr(antigen_scoring, "soft_epitope_reward", lambda seq, target_epitopes: 0.0114)
+
+    breakdown = antigen_scoring.score_antigen_candidate_with_breakdown(
+        "MLSELVEGEELLLLKLLLLLLGAAGVLIVLAGGGKVPLKQLSELLLGKDLDLLLGLDYLYLLVDKKRLRGTLLLLLDAALLLLDDGEISSVATALLAAKTLVLLDGGGVIGVKVVA",
+        target_epitopes={"SIINFEKL"},
+    )
+
+    expected = (
+        antigen_scoring.BASE_SCORE_WEIGHT * breakdown["base_score"]
+        + antigen_scoring.SOFT_EPITOPE_WEIGHT * breakdown["soft_epitope"]
+        + antigen_scoring.HARD_CONSTRAINT_WEIGHT * breakdown["hard_epitope_constraint"]
+    )
+    assert abs(expected - breakdown["score"]) < 1e-12

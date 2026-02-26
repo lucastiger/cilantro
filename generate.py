@@ -87,10 +87,30 @@ def _build_progress_reporter(enabled: bool, per_candidate: bool):
                     f"{payload['esm2_sequence_log_likelihood']:.4f}"
                 )
                 print(f"  toxicity={payload['toxicity']:.4f}")
+                print(
+                    "  normalized_terms="
+                    f"immunogenicity:{payload['immunogenicity_term']:.4f}, "
+                    f"esm2:{payload['esm2_term']:.4f}, "
+                    f"toxicity:{payload['toxicity_term']:.4f}"
+                )
+                print(
+                    "  weighted_base_terms="
+                    f"immunogenicity:{payload['weighted_immunogenicity']:.4f}, "
+                    f"esm2:{payload['weighted_esm2']:.4f}, "
+                    f"toxicity:{payload['weighted_toxicity']:.4f}, "
+                    f"base:{payload['base_score']:.4f}"
+                )
                 print(f"  soft_epitope={payload['soft_epitope']:.4f}")
                 print(
                     "  hard_epitope_constraint="
                     f"{payload['hard_epitope_constraint']:.4f}"
+                )
+                print(
+                    "  total_score="
+                    f"{payload['score']:.4f} "
+                    f"(= {payload['base_score']:.4f}*{payload['base_score_weight']:.2f} "
+                    f"+ {payload['soft_epitope']:.4f}*{payload['soft_epitope_weight']:.2f} "
+                    f"+ {payload['hard_epitope_constraint']:.4f}*{payload['hard_constraint_weight']:.2f})"
                 )
             elif event == "complete":
                 best = payload.get("best")
