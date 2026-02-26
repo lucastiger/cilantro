@@ -192,3 +192,131 @@ def vae_loss(x, logits, mean, log_var, beta=0.05, kl_capacity=0.0):
     )
     kl_penalty = tf.abs(kl - kl_capacity)
     return recon + beta * kl_penalty, recon, kl
+
+
+# ---- Pretrained protein-vae adapter ----
+import numpy as np
+import torch
+
+
+_PROTEIN_VAE_SEQ_LEN = 140
+_PROTEIN_VAE_SEQ_CHOICES = [
+    "G", "A", "L", "M", "F", "W", "K", "Q", "E", "S",
+    "P", "V", "I", "C", "Y", "H", "R", "N", "D", "T", "X", "-",
+]
+_PROTEIN_VAE_N_SYMBOLS = len(_PROTEIN_VAE_SEQ_CHOICES)
+_PROTEIN_VAE_INPUT_SIZE = 3088
+_PROTEIN_VAE_HIDDEN_SIZES = [512, 256, 128, 16]
+_PROTEIN_VAE_CONDITION_DIM = 8
+
+_CILANTRO_AA = "ACDEFGHIKLMNPQRSTVWY"
+_ID_TO_AA = {i + 3: aa for i, aa in enumerate(_CILANTRO_AA)}
+_AA_TO_ID = {aa: i + 3 for i, aa in enumerate(_CILANTRO_AA)}
+
+
+class _ProteinVAEBackbone(torch.nn.Module):
+    def __init__(self, input_size, hidden_sizes):
+        super().__init__()
+        self.fc = torch.nn.Linear(input_size, hidden_sizes[0])
+        self.BN = torch.nn.BatchNorm1d(hidden_sizes[0])
+        self.fc1 = torch.nn.Linear(hidden_sizes[0], hidden_sizes[1])
+        self.BN1 = torch.nn.BatchNorm1d(hidden_sizes[1])
+        self.fc2 = torch.nn.Linear(hidden_sizes[1], hidden_sizes[2])
+        self.BN2 = torch.nn.BatchNorm1d(hidden_sizes[2])
+        self.fc3_mu = torch.nn.Linear(hidden_sizes[2], hidden_sizes[3])
+        self.fc3_sig = torch.nn.Linear(hidden_sizes[2], hidden_sizes[3])
+
+        self.fc4 = torch.nn.Linear(hidden_sizes[3] + _PROTEIN_VAE_CONDITION_DIM, hidden_sizes[2])
+        self.BN4 = torch.nn.BatchNorm1d(hidden_sizes[2])
+        self.fc5 = torch.nn.Linear(hidden_sizes[2], hidden_sizes[1])
+        self.BN5 = torch.nn.BatchNorm1d(hidden_sizes[1])
+        self.fc6 = torch.nn.Linear(hidden_sizes[1], hidden_sizes[0])
+        self.BN6 = torch.nn.BatchNorm1d(hidden_sizes[0])
+        self.fc7 = torch.nn.Linear(hidden_sizes[0], input_size - _PROTEIN_VAE_CONDITION_DIM)
+
+    def encode(self, x, code):
+        h = torch.cat((x, code), dim=1)
+        h = torch.relu(self.BN(self.fc(h)))
+        h = torch.relu(self.BN1(self.fc1(h)))
+        h = torch.relu(self.BN2(self.fc2(h)))
+        mu = self.fc3_mu(h)
+        sig = torch.nn.functional.softplus(self.fc3_sig(h))
+        return mu, sig
+
+    def decode_from_latent(self, z, code):
+        h = torch.cat((z, code), dim=1)
+        h = torch.relu(self.BN4(self.fc4(h)))
+        h = torch.relu(self.BN5(self.fc5(h)))
+        h = torch.relu(self.BN6(self.fc6(h)))
+        return torch.sigmoid(self.fc7(h))
+
+
+class ProteinSeqVAE:
+    """Adapter exposing encode/decode using pretrained /protein-vae weights."""
+
+    def __init__(self, weights_path, device="cpu"):
+        self.device = torch.device(device)
+        self.model = _ProteinVAEBackbone(_PROTEIN_VAE_INPUT_SIZE, _PROTEIN_VAE_HIDDEN_SIZES).to(self.device)
+        state = torch.load(weights_path, map_location=self.device)
+        self.model.load_state_dict(state)
+        self.model.eval()
+        self.latent_dim = _PROTEIN_VAE_HIDDEN_SIZES[-1]
+
+    def _token_ids_to_seq(self, token_ids):
+        chars = []
+        for token in token_ids:
+            token = int(token)
+            if token in (PAD_ID, START_ID):
+                continue
+            aa = _ID_TO_AA.get(token)
+            if aa:
+                chars.append(aa)
+        return "".join(chars)
+
+    def _seq_to_input_vector(self, seq):
+        seq = seq[:_PROTEIN_VAE_SEQ_LEN]
+        gap_idx = _PROTEIN_VAE_SEQ_CHOICES.index("-")
+        unknown_idx = _PROTEIN_VAE_SEQ_CHOICES.index("X")
+        seq_indices = [gap_idx] * _PROTEIN_VAE_SEQ_LEN
+        for idx, aa in enumerate(seq):
+            seq_indices[idx] = _PROTEIN_VAE_SEQ_CHOICES.index(aa) if aa in _PROTEIN_VAE_SEQ_CHOICES else unknown_idx
+
+        vec = np.zeros(_PROTEIN_VAE_SEQ_LEN * _PROTEIN_VAE_N_SYMBOLS, dtype=np.float32)
+        for idx, aa_idx in enumerate(seq_indices):
+            vec[idx * _PROTEIN_VAE_N_SYMBOLS + aa_idx] = 1.0
+        return vec
+
+    def _decoded_vec_to_token_ids(self, decoded_vec):
+        aa_logits = decoded_vec.reshape(_PROTEIN_VAE_SEQ_LEN, _PROTEIN_VAE_N_SYMBOLS)
+        token_ids = np.zeros(_PROTEIN_VAE_SEQ_LEN, dtype=np.int32)
+        for idx in range(_PROTEIN_VAE_SEQ_LEN):
+            aa = _PROTEIN_VAE_SEQ_CHOICES[int(np.argmax(aa_logits[idx]))]
+            token_ids[idx] = _AA_TO_ID.get(aa, PAD_ID)
+        return token_ids
+
+    def encode(self, token_batch):
+        token_np = np.asarray(token_batch)
+        seq_vecs = np.stack([
+            self._seq_to_input_vector(self._token_ids_to_seq(row)) for row in token_np
+        ]).astype(np.float32)
+        code = np.zeros((seq_vecs.shape[0], _PROTEIN_VAE_CONDITION_DIM), dtype=np.float32)
+
+        with torch.no_grad():
+            x = torch.from_numpy(seq_vecs).to(self.device)
+            c = torch.from_numpy(code).to(self.device)
+            mean, sig = self.model.encode(x, c)
+
+        mean_np = mean.cpu().numpy()
+        log_var_np = np.log(np.square(sig.cpu().numpy()) + 1e-8)
+        return mean_np, log_var_np
+
+    def decode(self, latent_batch):
+        latent_np = np.asarray(latent_batch, dtype=np.float32)
+        code = np.zeros((latent_np.shape[0], _PROTEIN_VAE_CONDITION_DIM), dtype=np.float32)
+
+        with torch.no_grad():
+            z = torch.from_numpy(latent_np).to(self.device)
+            c = torch.from_numpy(code).to(self.device)
+            decoded = self.model.decode_from_latent(z, c).cpu().numpy()
+
+        return np.stack([self._decoded_vec_to_token_ids(row) for row in decoded])
