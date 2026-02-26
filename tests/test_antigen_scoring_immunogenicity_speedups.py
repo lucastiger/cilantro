@@ -80,3 +80,23 @@ def test_predict_immunogenicity_uses_cache(monkeypatch):
     assert first == second
     assert call_count["predict"] == 1
 
+
+def test_immunogenicity_prediction_alleles_prefers_frequency_coverage(monkeypatch):
+    monkeypatch.setenv("IMMUNOGENICITY_ALLELE_COVERAGE", "0.85")
+    monkeypatch.setenv("IMMUNOGENICITY_MAX_ALLELES", "3")
+    monkeypatch.setattr(
+        antigen_scoring,
+        "parse_allele_frequencies_env",
+        lambda: {
+            "HLA-A*02:01": 0.60,
+            "HLA-B*07:02": 0.20,
+            "HLA-A*03:01": 0.15,
+            "HLA-C*07:02": 0.05,
+        },
+    )
+
+    selected = antigen_scoring._immunogenicity_prediction_alleles(
+        ["HLA-A*02:01", "HLA-B*07:02", "HLA-A*03:01", "HLA-C*07:02"]
+    )
+
+    assert selected == ["HLA-A*02:01", "HLA-B*07:02", "HLA-A*03:01"]

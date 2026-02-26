@@ -55,3 +55,20 @@ def test_predict_toxicity_uses_sliding_windows(monkeypatch):
 
     assert captured["windows"] == ["ABCDEFGHIJKLMNO", "BCDEFGHIJKLMNOP"]
     assert 0.6 < score < 0.85
+
+
+def test_predict_toxicity_reuses_cached_windows(monkeypatch):
+    calls = {"count": 0}
+
+    def fake_batch(windows):
+        calls["count"] += 1
+        return [0.4 for _ in windows]
+
+    antigen_scoring._TOXICITY_WINDOW_CACHE.clear()
+    monkeypatch.setattr(antigen_scoring, "predict_toxicity_external_batch", fake_batch)
+
+    first = antigen_scoring.predict_toxicity("ABCDEFGHIJKLMNOP", window_size=15, beta=10.0)
+    second = antigen_scoring.predict_toxicity("ABCDEFGHIJKLMNOP", window_size=15, beta=10.0)
+
+    assert first == second
+    assert calls["count"] == 1
