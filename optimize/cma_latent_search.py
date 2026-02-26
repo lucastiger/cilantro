@@ -1,6 +1,5 @@
 import cma
 import numpy as np
-import tensorflow as tf
 from typing import Callable
 
 from utils.seq_utils import decode_sequence_from_ids
@@ -41,8 +40,7 @@ def latent_optimize(
 
         for idx, z_vec in enumerate(solutions, start=1):
             z = np.array(z_vec, dtype=np.float32)[None, :]
-            logits = model.decode(tf.constant(z))
-            token_ids = tf.argmax(logits, axis=-1).numpy()[0]
+            token_ids = model.decode(z)[0]
             seq = decode_sequence_from_ids(token_ids)
 
             score = score_antigen_candidate(seq, target_epitopes)
