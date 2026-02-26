@@ -147,6 +147,12 @@ Real scoring-tool smoke tests (runs actual MHCflurry / ToxinPred3 / ESM-2 path):
 !RUN_SCORING_TOOL_SMOKE_TESTS=1 pytest -m smoke cilantro/tests/test_scoring_tool_smoke.py
 ```
 
+prot-vae encode/decode smoke test (prints input sequence, latent shapes, and decoded sequence):
+
+```
+!RUN_PROTEIN_VAE_SMOKE_TESTS=1 pytest -m smoke -s cilantro/tests/test_protein_vae_smoke.py
+```
+
 Notes:
 - Smoke tests are opt-in because they require heavyweight runtime dependencies and model/tool availability.
 - `predict_esm2_mean_log_likelihood` smoke testing supports either `ESM2_LIKELIHOOD_CMD` or the local `fair-esm` + `torch` model path.
