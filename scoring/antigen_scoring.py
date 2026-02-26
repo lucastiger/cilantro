@@ -1,5 +1,6 @@
 # scoring/antigen_scoring.py
 import math
+from functools import lru_cache
 from typing import Iterable, List
 
 from scoring.prediction_tools import (
@@ -163,12 +164,28 @@ def _generate_peptides(seq: str, lengths: Iterable[int]) -> List[str]:
     return peptides
 
 
+def _immunogenicity_prediction_alleles(supported_alleles: list[str]) -> list[str]:
+    """Prefer frequency-backed alleles to avoid unnecessary MHC predictions."""
+    freq_map = parse_allele_frequencies_env()
+    if not freq_map:
+        freq_map = default_allele_frequencies(supported_alleles)
+
+    if not freq_map:
+        return supported_alleles
+
+    supported_set = set(supported_alleles)
+    selected = [allele for allele in freq_map if allele in supported_set]
+    return selected or supported_alleles
+
+
+@lru_cache(maxsize=4096)
 def predict_immunogenicity(seq: str) -> float:
-    peptides = _generate_peptides(seq, lengths=range(8, 12))
+    peptides = sorted(set(_generate_peptides(seq, lengths=range(8, 12))))
     if not peptides:
         return 0.0
 
-    alleles = mhcflurry_supported_alleles()
+    supported_alleles = mhcflurry_supported_alleles()
+    alleles = _immunogenicity_prediction_alleles(supported_alleles)
     kd_by_allele = predict_mhcflurry_kd_matrix(peptides, alleles=alleles)
     if not kd_by_allele:
         return 0.0
