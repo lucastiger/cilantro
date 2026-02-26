@@ -3,9 +3,7 @@ import json
 import os
 from pathlib import Path
 
-import tensorflow as tf
-
-from models.vae import SeqVAE
+from models.vae import ProteinSeqVAE
 from optimize.cma_latent_search import latent_optimize
 from scoring.find_top_epitopes import find_top_epitopes
 from utils.seq_utils import build_vocab_and_encode, load_fasta_as_sequences
@@ -18,6 +16,15 @@ def _resolve_output_path(output_json: str) -> Path:
 
     script_dir = Path(__file__).resolve().parent
     return script_dir / output_path
+
+
+def _resolve_ckpt_path(ckpt: str) -> Path:
+    ckpt_path = Path(ckpt)
+    if ckpt_path.is_absolute():
+        return ckpt_path
+
+    script_dir = Path(__file__).resolve().parent
+    return (script_dir / ckpt_path).resolve()
 
 
 def _build_progress_reporter(enabled: bool, per_candidate: bool):
@@ -84,15 +91,10 @@ def main(args):
 
     # Load sequences
     seqs = load_fasta_as_sequences(args.input_fasta)
-    tokenized, vocab = build_vocab_and_encode(seqs, max_len=args.max_len)
+    tokenized, _ = build_vocab_and_encode(seqs, max_len=args.max_len)
 
     # Load model
-    model = SeqVAE(
-        vocab_size=len(vocab) + 3,
-        max_len=args.max_len
-    )
-    model.build((None, args.max_len))
-    model.load_weights(args.ckpt)
+    model = ProteinSeqVAE(weights_path=str(_resolve_ckpt_path(args.ckpt)))
 
     # ---- Epitope discovery ----
     top_epitopes = find_top_epitopes(
@@ -124,8 +126,8 @@ def main(args):
         print(f"Restricting optimization targets to top {selected_n} epitopes by score")
 
     # ---- Seed latent ----
-    z_mean, _ = model.encode(tf.constant(tokenized[:1]))
-    z_seed = z_mean.numpy()[0]
+    z_mean, _ = model.encode(tokenized[:1])
+    z_seed = z_mean[0]
 
     # ---- Optimize ----
     best = latent_optimize(
@@ -152,7 +154,11 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_fasta", required=True)
-    parser.add_argument("--ckpt", required=True)
+    parser.add_argument(
+        "--ckpt",
+        default="../protein-vae/produce_sequences/models/metal16_nostruc",
+        help="Path to pretrained protein-vae weights.",
+    )
     parser.add_argument("--max_len", type=int, default=200)
 
     parser.add_argument("--min_ep_len", type=int, default=5)
