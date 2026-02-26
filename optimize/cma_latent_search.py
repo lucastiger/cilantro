@@ -3,7 +3,13 @@ import numpy as np
 from typing import Callable
 
 from utils.seq_utils import decode_sequence_from_ids
-from scoring.antigen_scoring import score_antigen_candidate_with_breakdown
+from scoring.antigen_scoring import (
+    BASE_SCORE_WEIGHT,
+    HARD_CONSTRAINT_WEIGHT,
+    SOFT_EPITOPE_WEIGHT,
+    antigen_score_components,
+    score_antigen_candidate_with_breakdown,
+)
 
 
 def latent_optimize(
@@ -44,6 +50,21 @@ def latent_optimize(
             seq = decode_sequence_from_ids(token_ids)
 
             score_breakdown = score_antigen_candidate_with_breakdown(seq, target_epitopes)
+            base_components = {
+                "immunogenicity_term": score_breakdown.get("immunogenicity_term"),
+                "esm2_term": score_breakdown.get("esm2_term"),
+                "toxicity_term": score_breakdown.get("toxicity_term"),
+                "weighted_immunogenicity": score_breakdown.get("weighted_immunogenicity"),
+                "weighted_esm2": score_breakdown.get("weighted_esm2"),
+                "weighted_toxicity": score_breakdown.get("weighted_toxicity"),
+                "base_score": score_breakdown.get("base_score"),
+            }
+            if any(value is None for value in base_components.values()):
+                base_components = antigen_score_components(
+                    score_breakdown["immunogenicity"],
+                    score_breakdown["esm2_sequence_log_likelihood"],
+                    score_breakdown["toxicity"],
+                )
             score = score_breakdown["score"]
             losses.append(-score)
             generation_candidates.append({"sequence": seq, "score": score})
@@ -68,6 +89,16 @@ def latent_optimize(
                             "immunogenicity": score_breakdown["immunogenicity"],
                             "esm2_sequence_log_likelihood": score_breakdown["esm2_sequence_log_likelihood"],
                             "toxicity": score_breakdown["toxicity"],
+                            "immunogenicity_term": base_components["immunogenicity_term"],
+                            "esm2_term": base_components["esm2_term"],
+                            "toxicity_term": base_components["toxicity_term"],
+                            "weighted_immunogenicity": base_components["weighted_immunogenicity"],
+                            "weighted_esm2": base_components["weighted_esm2"],
+                            "weighted_toxicity": base_components["weighted_toxicity"],
+                            "base_score": base_components["base_score"],
+                            "base_score_weight": BASE_SCORE_WEIGHT,
+                            "soft_epitope_weight": SOFT_EPITOPE_WEIGHT,
+                            "hard_constraint_weight": HARD_CONSTRAINT_WEIGHT,
                             "soft_epitope": score_breakdown["soft_epitope"],
                             "hard_epitope_constraint": score_breakdown["hard_epitope_constraint"],
                         },

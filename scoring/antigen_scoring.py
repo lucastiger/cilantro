@@ -102,6 +102,14 @@ def normalize_esm2_log_likelihood(mean_log_likelihood: float) -> float:
 
 
 def normalize_toxicity(toxicity: float) -> float:
+    """
+    Convert toxicity risk to a goodness term in [0, 1].
+
+    The toxicity predictor emits risk-like values where larger numbers are worse.
+    We map that to a score where larger is better, and we intentionally saturate
+    everything at or above TOXICITY_WORST to 0 so very toxic candidates are all
+    treated as equally unacceptable.
+    """
     toxicity_clamped = max(0.0, min(toxicity, 1.0))
     if toxicity_clamped >= TOXICITY_WORST:
         return 0.0
@@ -115,7 +123,7 @@ def antigen_score(immunogenicity, esm2_mean_log_likelihood, toxicity):
     0.35 ESM-2 sequence mean log-likelihood
     0.15 toxicity
     """
-    
+
     # Normalize each term to [0,1]
     immunogenicity_term = max(0.0, min(float(immunogenicity), 1.0))
     esm2_term = normalize_esm2_log_likelihood(esm2_mean_log_likelihood)
@@ -126,6 +134,32 @@ def antigen_score(immunogenicity, esm2_mean_log_likelihood, toxicity):
         0.35 * esm2_term +
         0.15 * toxicity_term
     )
+
+
+def antigen_score_components(
+    immunogenicity: float,
+    esm2_mean_log_likelihood: float,
+    toxicity: float,
+) -> dict[str, float]:
+    """Return raw, normalized, weighted, and aggregate base score components."""
+    immunogenicity_term = max(0.0, min(float(immunogenicity), 1.0))
+    esm2_term = normalize_esm2_log_likelihood(esm2_mean_log_likelihood)
+    toxicity_term = normalize_toxicity(toxicity)
+
+    weighted_immunogenicity = 0.50 * immunogenicity_term
+    weighted_esm2 = 0.35 * esm2_term
+    weighted_toxicity = 0.15 * toxicity_term
+    base_score = weighted_immunogenicity + weighted_esm2 + weighted_toxicity
+
+    return {
+        "immunogenicity_term": immunogenicity_term,
+        "esm2_term": esm2_term,
+        "toxicity_term": toxicity_term,
+        "weighted_immunogenicity": weighted_immunogenicity,
+        "weighted_esm2": weighted_esm2,
+        "weighted_toxicity": weighted_toxicity,
+        "base_score": base_score,
+    }
 
 def has_any_target_epitope(seq: str, target_epitopes: set[str]) -> bool:
     return any(epitope in seq for epitope in target_epitopes)
@@ -305,11 +339,12 @@ def score_antigen_candidate_with_breakdown(
     immunogenicity = predict_immunogenicity(seq)
     esm2_sequence_log_likelihood = predict_esm2_sequence_log_likelihood(seq)
     toxicity = predict_toxicity(seq)
-    base = antigen_score(
+    components = antigen_score_components(
         immunogenicity,
         esm2_sequence_log_likelihood,
         toxicity,
     )
+    base = components["base_score"]
     total_score = (
         BASE_SCORE_WEIGHT * base
         + SOFT_EPITOPE_WEIGHT * ep_soft_reward
@@ -321,6 +356,7 @@ def score_antigen_candidate_with_breakdown(
         "immunogenicity": immunogenicity,
         "esm2_sequence_log_likelihood": esm2_sequence_log_likelihood,
         "toxicity": toxicity,
+        **components,
         "soft_epitope": ep_soft_reward,
         "hard_epitope_constraint": hard_constraint_satisfied,
     }
