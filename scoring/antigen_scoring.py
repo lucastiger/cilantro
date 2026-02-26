@@ -290,22 +290,41 @@ def predict_toxicity(
     windows = _toxicity_windows(seq, window_size=window_size)
     window_toxicities = _toxicity_windows_cached_scores(windows)
     return toxicity_softmax_score(window_toxicities, beta=beta)
-    
-def score_antigen_candidate(seq: str, target_epitopes: set | None = None) -> float:
+
+
+def score_antigen_candidate_with_breakdown(
+    seq: str,
+    target_epitopes: set | None = None,
+) -> dict[str, float]:
     hard_constraint_satisfied = 1.0
     ep_soft_reward = 1.0
     if target_epitopes:
         hard_constraint_satisfied = 1.0 if has_any_target_epitope(seq, target_epitopes) else 0.0
         ep_soft_reward = soft_epitope_reward(seq, target_epitopes)
 
+    immunogenicity = predict_immunogenicity(seq)
+    esm2_sequence_log_likelihood = predict_esm2_sequence_log_likelihood(seq)
+    toxicity = predict_toxicity(seq)
     base = antigen_score(
-        predict_immunogenicity(seq),
-        predict_esm2_sequence_log_likelihood(seq),
-        predict_toxicity(seq),
+        immunogenicity,
+        esm2_sequence_log_likelihood,
+        toxicity,
     )
-
-    return (
+    total_score = (
         BASE_SCORE_WEIGHT * base
         + SOFT_EPITOPE_WEIGHT * ep_soft_reward
         + HARD_CONSTRAINT_WEIGHT * hard_constraint_satisfied
     )
+
+    return {
+        "score": total_score,
+        "immunogenicity": immunogenicity,
+        "esm2_sequence_log_likelihood": esm2_sequence_log_likelihood,
+        "toxicity": toxicity,
+        "soft_epitope": ep_soft_reward,
+        "hard_epitope_constraint": hard_constraint_satisfied,
+    }
+
+
+def score_antigen_candidate(seq: str, target_epitopes: set | None = None) -> float:
+    return score_antigen_candidate_with_breakdown(seq, target_epitopes)["score"]

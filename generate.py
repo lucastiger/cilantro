@@ -75,6 +75,23 @@ def _build_progress_reporter(enabled: bool, per_candidate: bool):
                         f"  #{rank}: score={candidate['score']:.4f} "
                         f"sequence={candidate['sequence']}"
                     )
+            elif event == "new_best_candidate":
+                print(
+                    f"[optimize] new best at generation {payload['generation']}/{payload['generations']} "
+                    f"score={payload['score']:.4f}"
+                )
+                print(f"  sequence={payload['sequence']}")
+                print(f"  immunogenicity={payload['immunogenicity']:.4f}")
+                print(
+                    "  esm2_sequence_log_likelihood="
+                    f"{payload['esm2_sequence_log_likelihood']:.4f}"
+                )
+                print(f"  toxicity={payload['toxicity']:.4f}")
+                print(f"  soft_epitope={payload['soft_epitope']:.4f}")
+                print(
+                    "  hard_epitope_constraint="
+                    f"{payload['hard_epitope_constraint']:.4f}"
+                )
             elif event == "complete":
                 best = payload.get("best")
                 if best:
