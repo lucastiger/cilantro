@@ -95,5 +95,32 @@ def test_score_breakdown_includes_weighted_base_and_total(monkeypatch):
         target_epitopes={"SIINFEKL"},
     )
 
-    expected = antigen_scoring.BASE_SCORE_WEIGHT * breakdown["base_score"]
+    expected = (
+        antigen_scoring.BASE_SCORE_WEIGHT * breakdown["base_score"]
+        - breakdown["weighted_hydrophobicity_penalty"]
+    )
     assert abs(expected - breakdown["score"]) < 1e-12
+
+
+def test_hydrophobicity_penalty_hits_poly_leucine_sequences():
+    poly_leucine = "L" * 120
+    mostly_polar = "STNQDEKRHG" * 12
+
+    assert antigen_scoring.hydrophobic_fraction(poly_leucine) > 0.95
+    assert antigen_scoring.hydrophobicity_penalty(poly_leucine, max_fraction=0.45) > 0.9
+
+    assert antigen_scoring.hydrophobic_fraction(mostly_polar) < 0.1
+    assert antigen_scoring.hydrophobicity_penalty(mostly_polar, max_fraction=0.45) == 0.0
+
+
+def test_score_penalizes_hydrophobic_sequences(monkeypatch):
+    monkeypatch.setattr(antigen_scoring, "predict_immunogenicity", lambda seq: 0.9)
+    monkeypatch.setattr(antigen_scoring, "predict_esm2_sequence_log_likelihood", lambda seq: -0.8)
+    monkeypatch.setattr(antigen_scoring, "predict_toxicity", lambda seq: 0.05)
+
+    hydrophobic = antigen_scoring.score_antigen_candidate_with_breakdown("L" * 140)
+    balanced = antigen_scoring.score_antigen_candidate_with_breakdown("STNQDEKRHG" * 14)
+
+    assert hydrophobic["weighted_hydrophobicity_penalty"] > 0.0
+    assert balanced["weighted_hydrophobicity_penalty"] == 0.0
+    assert balanced["score"] > hydrophobic["score"]
