@@ -21,6 +21,9 @@ TOXICITY_WINDOW_SIZE = 15
 TOXICITY_BETA = 10.0
 SOFT_EPITOPE_ALPHA = 8.0
 BASE_SCORE_WEIGHT = 1.0
+HYDROPHOBICITY_MAX_FRACTION = 0.45
+HYDROPHOBICITY_PENALTY_WEIGHT = 0.25
+HYDROPHOBIC_RESIDUES = frozenset({"A", "V", "I", "L", "M", "F", "W", "Y", "C"})
 AMINO_ACID_ALPHABET = "ACDEFGHIKLMNPQRSTVWY"
 IMMUNOGENICITY_ALLELE_COVERAGE = 0.9
 IMMUNOGENICITY_MAX_ALLELES = 12
@@ -158,6 +161,30 @@ def antigen_score_components(
         "weighted_toxicity": weighted_toxicity,
         "base_score": base_score,
     }
+
+
+def hydrophobic_fraction(seq: str) -> float:
+    if not seq:
+        return 0.0
+    hydrophobic_count = sum(1 for residue in seq if residue in HYDROPHOBIC_RESIDUES)
+    return hydrophobic_count / len(seq)
+
+
+def hydrophobicity_penalty(
+    seq: str,
+    max_fraction: float = HYDROPHOBICITY_MAX_FRACTION,
+) -> float:
+    """
+    Penalty in [0, 1] that activates when hydrophobic fraction exceeds max_fraction.
+    """
+    threshold = max(0.0, min(float(max_fraction), 1.0))
+    observed = hydrophobic_fraction(seq)
+    if observed <= threshold:
+        return 0.0
+    if threshold >= 1.0:
+        return 0.0
+    overflow = (observed - threshold) / (1.0 - threshold)
+    return max(0.0, min(overflow, 1.0))
 
 def has_any_target_epitope(seq: str, target_epitopes: set[str]) -> bool:
     return any(epitope in seq for epitope in target_epitopes)
@@ -337,13 +364,27 @@ def score_antigen_candidate_with_breakdown(
         toxicity,
     )
     base = components["base_score"]
-    total_score = BASE_SCORE_WEIGHT * base
+    hydrophobicity_threshold = float(
+        os.getenv("HYDROPHOBICITY_MAX_FRACTION", str(HYDROPHOBICITY_MAX_FRACTION))
+    )
+    hydrophobicity_weight = max(
+        0.0,
+        float(os.getenv("HYDROPHOBICITY_PENALTY_WEIGHT", str(HYDROPHOBICITY_PENALTY_WEIGHT))),
+    )
+    observed_hydrophobicity = hydrophobic_fraction(seq)
+    hydrophobic_penalty = hydrophobicity_penalty(seq, max_fraction=hydrophobicity_threshold)
+    weighted_hydrophobic_penalty = hydrophobicity_weight * hydrophobic_penalty
+    total_score = BASE_SCORE_WEIGHT * base - weighted_hydrophobic_penalty
 
     return {
         "score": total_score,
         "immunogenicity": immunogenicity,
         "esm2_sequence_log_likelihood": esm2_sequence_log_likelihood,
         "toxicity": toxicity,
+        "hydrophobic_fraction": observed_hydrophobicity,
+        "hydrophobicity_threshold": hydrophobicity_threshold,
+        "hydrophobicity_penalty": hydrophobic_penalty,
+        "weighted_hydrophobicity_penalty": weighted_hydrophobic_penalty,
         **components,
     }
 

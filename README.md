@@ -186,6 +186,7 @@ prot-vae encode/decode smoke test (prints input sequence, latent shapes, and dec
 Notes:
 - Smoke tests are opt-in because they require heavyweight runtime dependencies and model/tool availability.
 - `predict_esm2_mean_log_likelihood` smoke testing supports either `ESM2_LIKELIHOOD_CMD` or the local `fair-esm` + `torch` model path.
+- To suppress overly hydrophobic/poly-leucine antigens, tune `HYDROPHOBICITY_MAX_FRACTION` (default `0.45`) and `HYDROPHOBICITY_PENALTY_WEIGHT` (default `0.25`).
 
 License
 -------
