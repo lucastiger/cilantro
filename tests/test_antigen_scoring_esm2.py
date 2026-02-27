@@ -20,13 +20,14 @@ def test_score_antigen_candidate_uses_esm2_not_folding_or_plddt(monkeypatch):
     assert score > 0.0
 
 
-def test_score_antigen_candidate_hard_epitope_constraint_weight_is_disabled(monkeypatch):
+def test_score_antigen_candidate_ignores_target_epitopes(monkeypatch):
     monkeypatch.setattr(antigen_scoring, "predict_immunogenicity", lambda seq: 1.0)
     monkeypatch.setattr(antigen_scoring, "predict_esm2_sequence_log_likelihood", lambda seq: -0.5)
     monkeypatch.setattr(antigen_scoring, "predict_toxicity", lambda seq: 0.0)
 
-    score = antigen_scoring.score_antigen_candidate("AAAAAAAAAA", target_epitopes={"SIINFEKL"})
-    assert score > 0.0
+    score_without_targets = antigen_scoring.score_antigen_candidate("AAAAAAAAAA")
+    score_with_targets = antigen_scoring.score_antigen_candidate("AAAAAAAAAA", target_epitopes={"SIINFEKL"})
+    assert score_with_targets == score_without_targets
 
 
 def test_soft_epitope_reward_prefers_better_window_match():
@@ -89,16 +90,10 @@ def test_score_breakdown_includes_weighted_base_and_total(monkeypatch):
     monkeypatch.setattr(antigen_scoring, "predict_immunogenicity", lambda seq: 0.8428)
     monkeypatch.setattr(antigen_scoring, "predict_esm2_sequence_log_likelihood", lambda seq: -0.3647)
     monkeypatch.setattr(antigen_scoring, "predict_toxicity", lambda seq: 0.0295)
-    monkeypatch.setattr(antigen_scoring, "soft_epitope_reward", lambda seq, target_epitopes: 0.0114)
-
     breakdown = antigen_scoring.score_antigen_candidate_with_breakdown(
         "MLSELVEGEELLLLKLLLLLLGAAGVLIVLAGGGKVPLKQLSELLLGKDLDLLLGLDYLYLLVDKKRLRGTLLLLLDAALLLLDDGEISSVATALLAAKTLVLLDGGGVIGVKVVA",
         target_epitopes={"SIINFEKL"},
     )
 
-    expected = (
-        antigen_scoring.BASE_SCORE_WEIGHT * breakdown["base_score"]
-        + antigen_scoring.SOFT_EPITOPE_WEIGHT * breakdown["soft_epitope"]
-        + antigen_scoring.HARD_CONSTRAINT_WEIGHT * breakdown["hard_epitope_constraint"]
-    )
+    expected = antigen_scoring.BASE_SCORE_WEIGHT * breakdown["base_score"]
     assert abs(expected - breakdown["score"]) < 1e-12

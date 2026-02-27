@@ -5,60 +5,30 @@ from typing import Callable
 from utils.seq_utils import decode_sequence_from_ids
 from scoring.antigen_scoring import (
     BASE_SCORE_WEIGHT,
-    HARD_CONSTRAINT_WEIGHT,
-    SOFT_EPITOPE_WEIGHT,
     antigen_score_components,
     score_antigen_candidate_with_breakdown,
 )
 
 
-def linear_weight_schedule(
-    generation: int,
-    generations: int,
-    *,
-    base_start: float = BASE_SCORE_WEIGHT,
-    base_end: float = 0.3,
-    soft_start: float = SOFT_EPITOPE_WEIGHT,
-    soft_end: float = 0.7,
-    hard_start: float = HARD_CONSTRAINT_WEIGHT,
-    hard_end: float = HARD_CONSTRAINT_WEIGHT,
-) -> tuple[float, float, float]:
-    """Linearly interpolate score weights across CMA-ES generations.
-
-    Weights are normalized to sum to 1 to keep score scale stable.
-    """
-    if generations <= 1:
-        progress = 1.0
-    else:
-        progress = max(0.0, min(1.0, generation / (generations - 1)))
-
-    base_weight = base_start + (base_end - base_start) * progress
-    soft_weight = soft_start + (soft_end - soft_start) * progress
-    hard_weight = hard_start + (hard_end - hard_start) * progress
-
-    total = base_weight + soft_weight + hard_weight
-    if total <= 0:
-        return BASE_SCORE_WEIGHT, SOFT_EPITOPE_WEIGHT, HARD_CONSTRAINT_WEIGHT
-
-    return (
-        base_weight / total,
-        soft_weight / total,
-        hard_weight / total,
-    )
+def insert_epitope_at_midpoint(sequence: str, epitope: str) -> str:
+    if not epitope:
+        return sequence
+    midpoint = len(sequence) // 2
+    return sequence[:midpoint] + epitope + sequence[midpoint:]
 
 
 def latent_optimize(
     model,
     seed_latent,
-    target_epitopes: set,
+    target_epitope: str,
     sigma=0.5,
     popsize=16,
     generations=100,
-    weight_schedule: Callable[[int, int], tuple[float, float, float]] | None = linear_weight_schedule,
     progress_callback: Callable[[str, dict], None] | None = None,
 ):
+    seed_latent_array = np.asarray(seed_latent, dtype=np.float32)
     es = cma.CMAEvolutionStrategy(
-        seed_latent.tolist(),
+        seed_latent_array.tolist(),
         sigma,
         {"popsize": popsize, "verb_log": 0}
     )
@@ -76,12 +46,7 @@ def latent_optimize(
         )
 
     for gen in range(generations):
-        if weight_schedule is None:
-            base_score_weight = BASE_SCORE_WEIGHT
-            soft_epitope_weight = SOFT_EPITOPE_WEIGHT
-            hard_constraint_weight = HARD_CONSTRAINT_WEIGHT
-        else:
-            base_score_weight, soft_epitope_weight, hard_constraint_weight = weight_schedule(gen, generations)
+        base_score_weight = BASE_SCORE_WEIGHT
 
         solutions = es.ask()
         losses = []
@@ -91,8 +56,9 @@ def latent_optimize(
             z = np.array(z_vec, dtype=np.float32)[None, :]
             token_ids = model.decode(z)[0]
             seq = decode_sequence_from_ids(token_ids)
+            seq = insert_epitope_at_midpoint(seq, target_epitope)
 
-            score_breakdown = score_antigen_candidate_with_breakdown(seq, target_epitopes)
+            score_breakdown = score_antigen_candidate_with_breakdown(seq)
             base_components = {
                 "immunogenicity_term": score_breakdown.get("immunogenicity_term"),
                 "esm2_term": score_breakdown.get("esm2_term"),
@@ -108,11 +74,7 @@ def latent_optimize(
                     score_breakdown["esm2_sequence_log_likelihood"],
                     score_breakdown["toxicity"],
                 )
-            score = (
-                base_score_weight * score_breakdown["base_score"]
-                + soft_epitope_weight * score_breakdown["soft_epitope"]
-                + hard_constraint_weight * score_breakdown["hard_epitope_constraint"]
-            )
+            score = base_score_weight * score_breakdown["base_score"]
             losses.append(-score)
             generation_candidates.append({"sequence": seq, "score": score})
 
@@ -144,10 +106,7 @@ def latent_optimize(
                             "weighted_toxicity": base_components["weighted_toxicity"],
                             "base_score": base_components["base_score"],
                             "base_score_weight": base_score_weight,
-                            "soft_epitope_weight": soft_epitope_weight,
-                            "hard_constraint_weight": hard_constraint_weight,
-                            "soft_epitope": score_breakdown["soft_epitope"],
-                            "hard_epitope_constraint": score_breakdown["hard_epitope_constraint"],
+                            "target_epitope": target_epitope,
                         },
                     )
 
