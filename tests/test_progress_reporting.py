@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from generate import _build_progress_reporter
 from optimize.cma_latent_search import latent_optimize
 from scoring.find_top_epitopes import find_top_epitopes
 
@@ -159,3 +160,38 @@ def test_latent_optimize_uses_total_score_not_base_score(monkeypatch):
     )
 
     assert best["score"] == 0.40
+
+
+def test_progress_reporter_shows_hydrophobicity_penalty(capsys):
+    reporter = _build_progress_reporter(enabled=True, per_candidate=False)
+    assert reporter is not None
+
+    payload = {
+        "stage": "antigen_optimization",
+        "generation": 1,
+        "generations": 20,
+        "score": 0.7629,
+        "target_epitopes": ["LLTEVETYV"],
+        "sequence": "LLLLLLLLLL",
+        "immunogenicity": 0.9466,
+        "esm2_sequence_log_likelihood": -0.2590,
+        "toxicity": 0.0736,
+        "immunogenicity_term": 0.9466,
+        "esm2_term": 0.7800,
+        "toxicity_term": 0.7546,
+        "weighted_immunogenicity": 0.4733,
+        "weighted_esm2": 0.2730,
+        "weighted_toxicity": 0.1132,
+        "base_score": 0.8595,
+        "base_score_weight": 1.00,
+        "hydrophobic_fraction": 1.0,
+        "hydrophobicity_threshold": 0.45,
+        "hydrophobicity_penalty": 0.3,
+        "weighted_hydrophobicity_penalty": 0.0966,
+    }
+
+    reporter("new_best_candidate", payload)
+    out = capsys.readouterr().out
+
+    assert "total_score=0.7629 (= 0.8595*1.00 - 0.0966)" in out
+    assert "hydrophobicity=fraction:1.0000, threshold:0.4500, penalty:0.3000, weighted:0.0966" in out
