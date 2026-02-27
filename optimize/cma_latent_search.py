@@ -10,17 +10,35 @@ from scoring.antigen_scoring import (
 )
 
 
-def insert_epitope_at_midpoint(sequence: str, epitope: str) -> str:
-    if not epitope:
+def insert_epitopes_with_generated_segments(sequence: str, epitopes: list[str]) -> str:
+    clean_epitopes = [ep for ep in epitopes if ep]
+    if not clean_epitopes:
         return sequence
-    midpoint = len(sequence) // 2
-    return sequence[:midpoint] + epitope + sequence[midpoint:]
+
+    segment_count = len(clean_epitopes) + 1
+    base_size, remainder = divmod(len(sequence), segment_count)
+
+    segments: list[str] = []
+    start = 0
+    for idx in range(segment_count):
+        extra = 1 if idx < remainder else 0
+        end = start + base_size + extra
+        segments.append(sequence[start:end])
+        start = end
+
+    antigen_parts: list[str] = []
+    for idx, epitope in enumerate(clean_epitopes):
+        antigen_parts.append(segments[idx])
+        antigen_parts.append(epitope)
+    antigen_parts.append(segments[-1])
+
+    return "".join(antigen_parts)
 
 
 def latent_optimize(
     model,
     seed_latent,
-    target_epitope: str,
+    target_epitopes: list[str],
     sigma=0.5,
     popsize=16,
     generations=100,
@@ -56,7 +74,7 @@ def latent_optimize(
             z = np.array(z_vec, dtype=np.float32)[None, :]
             token_ids = model.decode(z)[0]
             seq = decode_sequence_from_ids(token_ids)
-            seq = insert_epitope_at_midpoint(seq, target_epitope)
+            seq = insert_epitopes_with_generated_segments(seq, target_epitopes)
 
             score_breakdown = score_antigen_candidate_with_breakdown(seq)
             base_components = {
@@ -106,7 +124,7 @@ def latent_optimize(
                             "weighted_toxicity": base_components["weighted_toxicity"],
                             "base_score": base_components["base_score"],
                             "base_score_weight": base_score_weight,
-                            "target_epitope": target_epitope,
+                            "target_epitopes": target_epitopes,
                         },
                     )
 
