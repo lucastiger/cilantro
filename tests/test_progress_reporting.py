@@ -90,15 +90,15 @@ def test_latent_optimize_reports_generation_progress(monkeypatch):
     generation_events = [payload for event, payload in events if event == "generation_complete"]
     new_best_events = [payload for event, payload in events if event == "new_best_candidate"]
     assert generation_events[0]["top_candidates"] == [
-        {"sequence": "AAAAABBBACCC", "score": 0.4},
-        {"sequence": "AAAAABBBACCC", "score": 0.1},
+        {"sequence": "AAAAAAAAABBBAAACCCAAA", "score": 0.4},
+        {"sequence": "AAAAAAAAABBBAAACCCAAA", "score": 0.1},
     ]
     assert generation_events[1]["top_candidates"] == [
-        {"sequence": "AAAAABBBACCC", "score": 0.3},
-        {"sequence": "AAAAABBBACCC", "score": 0.2},
+        {"sequence": "AAAAAAAAABBBAAACCCAAA", "score": 0.3},
+        {"sequence": "AAAAAAAAABBBAAACCCAAA", "score": 0.2},
     ]
     assert len(new_best_events) == 2
     assert new_best_events[1]["score"] == 0.4
-    assert new_best_events[1]["sequence"] == "AAAAABBBACCC"
+    assert new_best_events[1]["sequence"] == "AAAAAAAAABBBAAACCCAAA"
     assert labels[-1] == "complete"
     assert best["score"] == 0.4
