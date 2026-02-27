@@ -102,3 +102,60 @@ def test_latent_optimize_reports_generation_progress(monkeypatch):
     assert new_best_events[1]["sequence"] == "AAAAAAAAABBBAAACCCAAA"
     assert labels[-1] == "complete"
     assert best["score"] == 0.4
+
+
+def test_latent_optimize_uses_total_score_not_base_score(monkeypatch):
+    class FakeStrategy:
+        def __init__(self, seed, sigma, options):
+            self.popsize = options["popsize"]
+
+        def ask(self):
+            return [np.array([0.1, 0.2]), np.array([0.3, 0.4])]
+
+        def tell(self, solutions, losses):
+            return None
+
+    class FakeModel:
+        def decode(self, z):
+            return np.array([[[0.0, 1.0], [1.0, 0.0], [0.0, 1.0]]])
+
+    monkeypatch.setattr("optimize.cma_latent_search.cma.CMAEvolutionStrategy", FakeStrategy)
+    monkeypatch.setattr("optimize.cma_latent_search.decode_sequence_from_ids", lambda _: "AAA")
+
+    breakdowns = iter(
+        [
+            {
+                "score": 0.30,
+                "immunogenicity": 0.8,
+                "esm2_sequence_log_likelihood": -1.2,
+                "toxicity": 0.1,
+                "base_score": 0.90,
+                "hydrophobicity_penalty": 1.0,
+                "weighted_hydrophobicity_penalty": 0.60,
+            },
+            {
+                "score": 0.40,
+                "immunogenicity": 0.8,
+                "esm2_sequence_log_likelihood": -1.2,
+                "toxicity": 0.1,
+                "base_score": 0.50,
+                "hydrophobicity_penalty": 0.0,
+                "weighted_hydrophobicity_penalty": 0.0,
+            },
+        ]
+    )
+    monkeypatch.setattr(
+        "optimize.cma_latent_search.score_antigen_candidate_with_breakdown",
+        lambda seq: next(breakdowns),
+    )
+
+    best = latent_optimize(
+        model=FakeModel(),
+        seed_latent=np.array([0.0, 0.0]),
+        target_epitopes=["AAA"],
+        popsize=2,
+        generations=1,
+        progress_callback=None,
+    )
+
+    assert best["score"] == 0.40

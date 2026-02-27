@@ -100,7 +100,7 @@ def latent_optimize(
                     score_breakdown["esm2_sequence_log_likelihood"],
                     score_breakdown["toxicity"],
                 )
-            score = base_score_weight * score_breakdown["base_score"]
+            score = score_breakdown["score"]
             losses.append(-score)
             generation_candidates.append({"sequence": seq, "score": score})
 
@@ -132,6 +132,10 @@ def latent_optimize(
                             "weighted_toxicity": base_components["weighted_toxicity"],
                             "base_score": base_components["base_score"],
                             "base_score_weight": base_score_weight,
+                            "hydrophobic_fraction": score_breakdown.get("hydrophobic_fraction"),
+                            "hydrophobicity_threshold": score_breakdown.get("hydrophobicity_threshold"),
+                            "hydrophobicity_penalty": score_breakdown.get("hydrophobicity_penalty"),
+                            "weighted_hydrophobicity_penalty": score_breakdown.get("weighted_hydrophobicity_penalty"),
                             "target_epitopes": target_epitopes,
                         },
                     )
