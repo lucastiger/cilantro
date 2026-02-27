@@ -12,6 +12,9 @@ def test_interleave_generated_sequences_and_epitopes_three_epitopes():
         == "AAAAE1BBBBE2CCCCE3DDDD"
     )
 
+def test_insert_epitopes_with_generated_segments_handles_remainder():
+    sequence = "ABCDEFG"
+    epitopes = ["X", "Y", "Z"]
 
 def test_interleave_generated_sequences_and_epitopes_requires_segment_count_match():
     epitopes = ["X", "Y", "Z"]
