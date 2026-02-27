@@ -77,6 +77,7 @@ def _build_progress_reporter(enabled: bool, per_candidate: bool):
                         f"sequence={candidate['sequence']}"
                     )
             elif event == "new_best_candidate":
+                weighted_hydrophobicity_penalty = payload.get("weighted_hydrophobicity_penalty")
                 print(
                     f"[optimize] new best at generation {payload['generation']}/{payload['generations']} "
                     f"score={payload['score']:.4f}"
@@ -105,8 +106,22 @@ def _build_progress_reporter(enabled: bool, per_candidate: bool):
                 print(
                     "  total_score="
                     f"{payload['score']:.4f} "
-                    f"(= {payload['base_score']:.4f}*{payload['base_score_weight']:.2f})"
+                    f"(= {payload['base_score']:.4f}*{payload['base_score_weight']:.2f}"
+                    + (
+                        f" - {weighted_hydrophobicity_penalty:.4f}"
+                        if weighted_hydrophobicity_penalty is not None
+                        else ""
+                    )
+                    + ")"
                 )
+                if weighted_hydrophobicity_penalty is not None:
+                    print(
+                        "  hydrophobicity="
+                        f"fraction:{payload.get('hydrophobic_fraction', 0.0):.4f}, "
+                        f"threshold:{payload.get('hydrophobicity_threshold', 0.0):.4f}, "
+                        f"penalty:{payload.get('hydrophobicity_penalty', 0.0):.4f}, "
+                        f"weighted:{weighted_hydrophobicity_penalty:.4f}"
+                    )
             elif event == "complete":
                 best = payload.get("best")
                 if best:
