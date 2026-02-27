@@ -13,8 +13,8 @@ from scoring.prediction_tools import (
     predict_mhcflurry_kd_matrix,
     predict_toxicity_external_batch,
 )
-ESM2_LOG_LIKELIHOOD_BEST = -0.5
-ESM2_LOG_LIKELIHOOD_WORST = -4.0
+ESM2_LOG_LIKELIHOOD_BEST = -0.05
+ESM2_LOG_LIKELIHOOD_WORST = -1
 TOXICITY_WORST = 0.3
 KD_BINDING_THRESHOLD_NM = 500.0
 TOXICITY_WINDOW_SIZE = 15
