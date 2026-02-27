@@ -20,9 +20,7 @@ KD_BINDING_THRESHOLD_NM = 500.0
 TOXICITY_WINDOW_SIZE = 15
 TOXICITY_BETA = 10.0
 SOFT_EPITOPE_ALPHA = 8.0
-BASE_SCORE_WEIGHT = 0.7
-SOFT_EPITOPE_WEIGHT = 0.3
-HARD_CONSTRAINT_WEIGHT = 0.0
+BASE_SCORE_WEIGHT = 1.0
 AMINO_ACID_ALPHABET = "ACDEFGHIKLMNPQRSTVWY"
 IMMUNOGENICITY_ALLELE_COVERAGE = 0.9
 IMMUNOGENICITY_MAX_ALLELES = 12
@@ -330,12 +328,6 @@ def score_antigen_candidate_with_breakdown(
     seq: str,
     target_epitopes: set | None = None,
 ) -> dict[str, float]:
-    hard_constraint_satisfied = 1.0
-    ep_soft_reward = 1.0
-    if target_epitopes:
-        hard_constraint_satisfied = 1.0 if has_any_target_epitope(seq, target_epitopes) else 0.0
-        ep_soft_reward = soft_epitope_reward(seq, target_epitopes)
-
     immunogenicity = predict_immunogenicity(seq)
     esm2_sequence_log_likelihood = predict_esm2_sequence_log_likelihood(seq)
     toxicity = predict_toxicity(seq)
@@ -345,11 +337,7 @@ def score_antigen_candidate_with_breakdown(
         toxicity,
     )
     base = components["base_score"]
-    total_score = (
-        BASE_SCORE_WEIGHT * base
-        + SOFT_EPITOPE_WEIGHT * ep_soft_reward
-        + HARD_CONSTRAINT_WEIGHT * hard_constraint_satisfied
-    )
+    total_score = BASE_SCORE_WEIGHT * base
 
     return {
         "score": total_score,
@@ -357,8 +345,6 @@ def score_antigen_candidate_with_breakdown(
         "esm2_sequence_log_likelihood": esm2_sequence_log_likelihood,
         "toxicity": toxicity,
         **components,
-        "soft_epitope": ep_soft_reward,
-        "hard_epitope_constraint": hard_constraint_satisfied,
     }
 
 

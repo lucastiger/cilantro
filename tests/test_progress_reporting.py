@@ -60,15 +60,15 @@ def test_latent_optimize_reports_generation_progress(monkeypatch):
     monkeypatch.setattr("optimize.cma_latent_search.decode_sequence_from_ids", lambda _: "AAA")
 
     scores = iter([0.1, 0.4, 0.2, 0.3])
+    next_base_scores = [0.1, 0.4, 0.2, 0.3]
     monkeypatch.setattr(
         "optimize.cma_latent_search.score_antigen_candidate_with_breakdown",
-        lambda seq, targets: {
+        lambda seq: {
             "score": next(scores),
             "immunogenicity": 0.8,
             "esm2_sequence_log_likelihood": -1.2,
             "toxicity": 0.1,
-            "soft_epitope": 0.7,
-            "hard_epitope_constraint": 1.0,
+            "base_score": next_base_scores.pop(0),
         },
     )
 
@@ -77,7 +77,7 @@ def test_latent_optimize_reports_generation_progress(monkeypatch):
     best = latent_optimize(
         model=FakeModel(),
         seed_latent=np.array([0.0, 0.0]),
-        target_epitopes={"AAA"},
+        target_epitope="AAA",
         popsize=2,
         generations=2,
         progress_callback=lambda event, payload: events.append((event, payload)),
@@ -90,15 +90,15 @@ def test_latent_optimize_reports_generation_progress(monkeypatch):
     generation_events = [payload for event, payload in events if event == "generation_complete"]
     new_best_events = [payload for event, payload in events if event == "new_best_candidate"]
     assert generation_events[0]["top_candidates"] == [
-        {"sequence": "AAA", "score": 0.4},
-        {"sequence": "AAA", "score": 0.1},
+        {"sequence": "AAAAAA", "score": 0.4},
+        {"sequence": "AAAAAA", "score": 0.1},
     ]
     assert generation_events[1]["top_candidates"] == [
-        {"sequence": "AAA", "score": 0.3},
-        {"sequence": "AAA", "score": 0.2},
+        {"sequence": "AAAAAA", "score": 0.3},
+        {"sequence": "AAAAAA", "score": 0.2},
     ]
     assert len(new_best_events) == 2
     assert new_best_events[1]["score"] == 0.4
-    assert new_best_events[1]["sequence"] == "AAA"
+    assert new_best_events[1]["sequence"] == "AAAAAA"
     assert labels[-1] == "complete"
     assert best["score"] == 0.4

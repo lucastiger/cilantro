@@ -1,53 +1,40 @@
 from __future__ import annotations
 
-import numpy as np
-
 import generate
 
 
-def test_optimize_segmented_antigen_concatenates_segments(monkeypatch):
-    calls: list[np.ndarray] = []
+def test_select_target_epitopes_honors_top_n():
+    epitope_scores = {"B": 0.5, "A": 0.9, "C": 0.2}
+
+    assert generate._select_target_epitopes(epitope_scores, top_n_epitopes=2) == ["A", "B"]
+
+
+def test_optimize_per_epitope_runs_once_per_epitope(monkeypatch):
+    calls: list[str] = []
 
     def fake_latent_optimize(**kwargs):
-        calls.append(np.asarray(kwargs["seed_latent"]))
-        idx = len(calls)
+        calls.append(kwargs["target_epitope"])
+        ep = kwargs["target_epitope"]
         return {
-            "sequence": f"SEG{idx}",
-            "score": float(idx),
+            "sequence": f"SEQ_{ep}",
+            "score": float(len(ep)),
             "generation": 0,
-            "score_breakdown": {"score": float(idx)},
+            "score_breakdown": {"base_score": float(len(ep))},
         }
 
     monkeypatch.setattr(generate, "latent_optimize", fake_latent_optimize)
-    monkeypatch.setattr(
-        generate,
-        "score_antigen_candidate_with_breakdown",
-        lambda seq, targets: {"score": 9.0, "sequence_length": len(seq)},
-    )
 
-    result = generate._optimize_segmented_antigen(
+    result = generate._optimize_per_epitope(
         model=object(),
-        seed_latent=np.array([0.0, 1.0], dtype=np.float32),
-        target_epitopes={"AA"},
+        seed_latent=[0.0, 1.0],
+        epitopes=["AAAA", "BBB"],
         sigma=0.5,
         popsize=2,
         generations=3,
-        segments=3,
-        segment_linker="GGGGS",
-        segment_seed_jitter=0.0,
         progress_reporter=None,
     )
 
-    assert len(calls) == 3
-    assert result["sequence"] == "SEG1GGGGSSEG2GGGGSSEG3"
-    assert result["score"] == 9.0
-    assert result["segment_linker"] == "GGGGS"
-    assert [segment["segment_index"] for segment in result["segments"]] == [1, 2, 3]
-
-
-def test_assemble_segmented_sequence():
-    seq = generate._assemble_segmented_sequence(
-        [{"sequence": "AAAA"}, {"sequence": "BBBB"}],
-        linker="GS",
-    )
-    assert seq == "AAAAGSBBBB"
+    assert calls == ["AAAA", "BBB"]
+    assert result["target_epitope"] == "AAAA"
+    assert result["sequence"] == "SEQ_AAAA"
+    assert len(result["per_epitope_results"]) == 2
