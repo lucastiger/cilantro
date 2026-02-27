@@ -81,7 +81,7 @@ def _build_progress_reporter(enabled: bool, per_candidate: bool):
                     f"[optimize] new best at generation {payload['generation']}/{payload['generations']} "
                     f"score={payload['score']:.4f}"
                 )
-                print(f"  target_epitope={payload['target_epitope']}")
+                print(f"  target_epitopes={payload['target_epitopes']}")
                 print(f"  sequence={payload['sequence']}")
                 print(f"  immunogenicity={payload['immunogenicity']:.4f}")
                 print(
@@ -128,32 +128,25 @@ def _select_target_epitopes(epitope_scores: dict[str, float], top_n_epitopes: in
     return [ep for ep, _ in sorted_epitope_scores[:selected_n]]
 
 
-def _optimize_per_epitope(*, model, seed_latent, epitopes: list[str], sigma: float, popsize: int, generations: int, progress_reporter):
-    results = []
-    for epitope in epitopes:
-        best = latent_optimize(
-            model=model,
-            seed_latent=seed_latent,
-            target_epitope=epitope,
-            sigma=sigma,
-            popsize=popsize,
-            generations=generations,
-            progress_callback=progress_reporter,
-        )
-        best["target_epitope"] = epitope
-        results.append(best)
+def _select_antigen_epitopes(epitopes: list[str], target_count: int = 3) -> list[str]:
+    return epitopes[:target_count]
 
-    if not results:
-        return {"sequence": "", "score": float("-inf"), "per_epitope_results": []}
 
-    overall_best = max(results, key=lambda r: r["score"])
-    return {
-        "sequence": overall_best["sequence"],
-        "score": overall_best["score"],
-        "score_breakdown": overall_best["score_breakdown"],
-        "target_epitope": overall_best["target_epitope"],
-        "per_epitope_results": results,
-    }
+def _optimize_for_epitope_set(*, model, seed_latent, epitopes: list[str], sigma: float, popsize: int, generations: int, progress_reporter):
+    if not epitopes:
+        return {"sequence": "", "score": float("-inf"), "target_epitopes": []}
+
+    best = latent_optimize(
+        model=model,
+        seed_latent=seed_latent,
+        target_epitopes=epitopes,
+        sigma=sigma,
+        popsize=popsize,
+        generations=generations,
+        progress_callback=progress_reporter,
+    )
+    best["target_epitopes"] = epitopes
+    return best
 
 
 def main(args):
@@ -186,10 +179,13 @@ def main(args):
     z_mean, _ = model.encode(tokenized[:1])
     z_seed = z_mean[0]
 
-    best = _optimize_per_epitope(
+    optimization_epitopes = _select_antigen_epitopes(target_epitopes, target_count=3)
+    print(f"Using {len(optimization_epitopes)} epitopes in each generated antigen")
+
+    best = _optimize_for_epitope_set(
         model=model,
         seed_latent=z_seed,
-        epitopes=target_epitopes,
+        epitopes=optimization_epitopes,
         sigma=args.sigma,
         popsize=args.popsize,
         generations=args.generations,

@@ -10,25 +10,42 @@ from scoring.antigen_scoring import (
 )
 
 
-def insert_epitope_at_midpoint(sequence: str, epitope: str) -> str:
-    if not epitope:
-        return sequence
-    midpoint = len(sequence) // 2
-    return sequence[:midpoint] + epitope + sequence[midpoint:]
+def interleave_generated_sequences_and_epitopes(generated_sequences: list[str], epitopes: list[str]) -> str:
+    clean_epitopes = [ep for ep in epitopes if ep]
+    if not clean_epitopes:
+        return "".join(generated_sequences)
+
+    required_segments = len(clean_epitopes) + 1
+    if len(generated_sequences) != required_segments:
+        raise ValueError(
+            "generated_sequences must contain exactly len(epitopes) + 1 entries"
+        )
+
+    antigen_parts: list[str] = []
+    for idx, epitope in enumerate(clean_epitopes):
+        antigen_parts.append(generated_sequences[idx])
+        antigen_parts.append(epitope)
+    antigen_parts.append(generated_sequences[-1])
+
+    return "".join(antigen_parts)
 
 
 def latent_optimize(
     model,
     seed_latent,
-    target_epitope: str,
+    target_epitopes: list[str],
     sigma=0.5,
     popsize=16,
     generations=100,
     progress_callback: Callable[[str, dict], None] | None = None,
 ):
     seed_latent_array = np.asarray(seed_latent, dtype=np.float32)
+    segment_count = len([ep for ep in target_epitopes if ep]) + 1
+    expanded_seed = np.tile(seed_latent_array, segment_count)
+    latent_dim = seed_latent_array.shape[0]
+
     es = cma.CMAEvolutionStrategy(
-        seed_latent_array.tolist(),
+        expanded_seed.tolist(),
         sigma,
         {"popsize": popsize, "verb_log": 0}
     )
@@ -53,10 +70,19 @@ def latent_optimize(
         generation_candidates = []
 
         for idx, z_vec in enumerate(solutions, start=1):
-            z = np.array(z_vec, dtype=np.float32)[None, :]
-            token_ids = model.decode(z)[0]
-            seq = decode_sequence_from_ids(token_ids)
-            seq = insert_epitope_at_midpoint(seq, target_epitope)
+            flattened = np.array(z_vec, dtype=np.float32)
+            generated_sequences = []
+            for segment_idx in range(segment_count):
+                start = segment_idx * latent_dim
+                end = start + latent_dim
+                z_segment = flattened[start:end][None, :]
+                token_ids = model.decode(z_segment)[0]
+                generated_sequences.append(decode_sequence_from_ids(token_ids))
+
+            seq = interleave_generated_sequences_and_epitopes(
+                generated_sequences,
+                target_epitopes,
+            )
 
             score_breakdown = score_antigen_candidate_with_breakdown(seq)
             base_components = {
@@ -106,7 +132,7 @@ def latent_optimize(
                             "weighted_toxicity": base_components["weighted_toxicity"],
                             "base_score": base_components["base_score"],
                             "base_score_weight": base_score_weight,
-                            "target_epitope": target_epitope,
+                            "target_epitopes": target_epitopes,
                         },
                     )
 

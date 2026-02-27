@@ -1,13 +1,27 @@
-from optimize.cma_latent_search import insert_epitope_at_midpoint
+import pytest
+
+from optimize.cma_latent_search import interleave_generated_sequences_and_epitopes
 
 
-def test_insert_epitope_at_midpoint_even_length_sequence():
-    assert insert_epitope_at_midpoint("AAAABBBB", "EPI") == "AAAAEPIBBBB"
+def test_interleave_generated_sequences_and_epitopes_three_epitopes():
+    generated_sequences = ["AAAA", "BBBB", "CCCC", "DDDD"]
+    epitopes = ["E1", "E2", "E3"]
+
+    assert (
+        interleave_generated_sequences_and_epitopes(generated_sequences, epitopes)
+        == "AAAAE1BBBBE2CCCCE3DDDD"
+    )
 
 
-def test_insert_epitope_at_midpoint_odd_length_sequence():
-    assert insert_epitope_at_midpoint("AAAAABB", "EPI") == "AAAEPIAABB"
+def test_interleave_generated_sequences_and_epitopes_requires_segment_count_match():
+    epitopes = ["X", "Y", "Z"]
+
+    with pytest.raises(ValueError, match=r"len\(epitopes\) \+ 1"):
+        interleave_generated_sequences_and_epitopes(["AB", "CD"], epitopes)
 
 
-def test_insert_epitope_at_midpoint_empty_epitope_is_noop():
-    assert insert_epitope_at_midpoint("SEQUENCE", "") == "SEQUENCE"
+def test_interleave_generated_sequences_and_epitopes_empty_epitopes_is_concat():
+    assert (
+        interleave_generated_sequences_and_epitopes(["SEQ1", "SEQ2"], [])
+        == "SEQ1SEQ2"
+    )
