@@ -42,3 +42,61 @@ def test_optimize_for_epitope_set_single_run(monkeypatch):
     assert calls == [["AAAA", "BBB", "CC"]]
     assert result["target_epitopes"] == ["AAAA", "BBB", "CC"]
     assert result["sequence"] == "SEQ_ABC"
+
+
+def test_parse_seed_epitopes_supports_spaces_and_commas():
+    parsed = generate._parse_seed_epitopes(["AAA", "BBB,CCC", "DDD,,"])
+
+    assert parsed == ["AAA", "BBB", "CCC", "DDD"]
+
+
+def test_main_uses_user_provided_seed_epitopes(monkeypatch):
+    calls = {"find_top_epitopes": 0, "latent_optimize": 0}
+
+    class DummyModel:
+        def __init__(self, weights_path):
+            self.weights_path = weights_path
+
+        def encode(self, tokenized):
+            return [[0.1, 0.2]], None
+
+    def fake_find_top_epitopes(*args, **kwargs):
+        calls["find_top_epitopes"] += 1
+        return []
+
+    def fake_build_vocab_and_encode(seqs, max_len):
+        return [[1, 2, 3]], None
+
+    def fake_latent_optimize(**kwargs):
+        calls["latent_optimize"] += 1
+        assert kwargs["target_epitopes"] == ["AAA", "BBB", "CCC"]
+        return {"sequence": "SEQ", "score": 0.1, "generation": 0}
+
+    monkeypatch.setattr(generate, "ProteinSeqVAE", DummyModel)
+    monkeypatch.setattr(generate, "find_top_epitopes", fake_find_top_epitopes)
+    monkeypatch.setattr(generate, "build_vocab_and_encode", fake_build_vocab_and_encode)
+    monkeypatch.setattr(generate, "score_antigen_candidate_with_breakdown", lambda _seq: {"score": 0.1})
+    monkeypatch.setattr(generate, "latent_optimize", fake_latent_optimize)
+
+    args = type("Args", (), {
+        "show_progress": False,
+        "progress_per_candidate": False,
+        "seed_sequence": "MKT",
+        "seed_epitopes": ["AAA", "BBB", "CCC"],
+        "input_fasta": None,
+        "max_len": 200,
+        "ckpt": "checkpoint.pt",
+        "min_ep_len": 5,
+        "max_ep_len": 35,
+        "top_k": 10,
+        "top_n_epitopes": None,
+        "sigma": 0.5,
+        "popsize": 2,
+        "generations": 1,
+        "output_json": None,
+    })
+
+    generate.main(args)
+
+    assert calls["find_top_epitopes"] == 0
+    assert calls["latent_optimize"] == 1
