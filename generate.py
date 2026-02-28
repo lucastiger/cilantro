@@ -147,6 +147,16 @@ def _select_antigen_epitopes(epitopes: list[str], target_count: int = 3) -> list
     return epitopes[:target_count]
 
 
+def _parse_seed_epitopes(raw_seed_epitopes: list[str] | None) -> list[str]:
+    if not raw_seed_epitopes:
+        return []
+
+    parsed: list[str] = []
+    for token in raw_seed_epitopes:
+        parsed.extend(ep.strip() for ep in token.split(",") if ep.strip())
+    return parsed
+
+
 def _optimize_for_epitope_set(*, model, seed_latent, epitopes: list[str], sigma: float, popsize: int, generations: int, progress_reporter):
     if not epitopes:
         return {"sequence": "", "score": float("-inf"), "target_epitopes": []}
@@ -166,35 +176,48 @@ def _optimize_for_epitope_set(*, model, seed_latent, epitopes: list[str], sigma:
 
 def main(args):
     progress_reporter = _build_progress_reporter(args.show_progress, args.progress_per_candidate)
-
-    seqs = load_fasta_as_sequences(args.input_fasta)
-    tokenized, _ = build_vocab_and_encode(seqs, max_len=args.max_len)
     model = ProteinSeqVAE(weights_path=str(_resolve_ckpt_path(args.ckpt)))
 
-    top_epitopes = find_top_epitopes(
-        args.input_fasta,
-        min_len=args.min_ep_len,
-        max_len=args.max_ep_len,
-        top_k=args.top_k,
-        progress_callback=progress_reporter,
-    )
+    if args.seed_sequence:
+        seed_sequence = args.seed_sequence
+    else:
+        seqs = load_fasta_as_sequences(args.input_fasta)
+        seed_sequence = seqs[0]
 
-    epitope_scores = {}
-    for ep in top_epitopes:
-        for sequence, score in ep.get("epitope_scores", {}).items():
-            epitope_scores[sequence] = max(epitope_scores.get(sequence, 0.0), score)
+    tokenized_seed, _ = build_vocab_and_encode([seed_sequence], max_len=args.max_len)
 
-    target_epitopes = _select_target_epitopes(epitope_scores, args.top_n_epitopes)
-    print(f"Identified {len(target_epitopes)} optimization-target epitopes")
-    if target_epitopes:
-        print("Selected epitopes:")
-        for ep in target_epitopes:
-            print(f"  {ep}: {epitope_scores[ep]:.4f}")
+    seed_epitopes = _parse_seed_epitopes(args.seed_epitopes)
+    if seed_epitopes:
+        optimization_epitopes = seed_epitopes
+        print(f"Using user-provided epitopes ({len(optimization_epitopes)})")
+        for ep in optimization_epitopes:
+            print(f"  {ep}")
+    else:
+        top_epitopes = find_top_epitopes(
+            args.input_fasta,
+            min_len=args.min_ep_len,
+            max_len=args.max_ep_len,
+            top_k=args.top_k,
+            progress_callback=progress_reporter,
+        )
 
-    z_mean, _ = model.encode(tokenized[:1])
+        epitope_scores = {}
+        for ep in top_epitopes:
+            for sequence, score in ep.get("epitope_scores", {}).items():
+                epitope_scores[sequence] = max(epitope_scores.get(sequence, 0.0), score)
+
+        target_epitopes = _select_target_epitopes(epitope_scores, args.top_n_epitopes)
+        print(f"Identified {len(target_epitopes)} optimization-target epitopes")
+        if target_epitopes:
+            print("Selected epitopes:")
+            for ep in target_epitopes:
+                print(f"  {ep}: {epitope_scores[ep]:.4f}")
+
+        optimization_epitopes = _select_antigen_epitopes(target_epitopes, target_count=3)
+
+    z_mean, _ = model.encode(tokenized_seed[:1])
     z_seed = z_mean[0]
 
-    optimization_epitopes = _select_antigen_epitopes(target_epitopes, target_count=3)
     print(f"Using {len(optimization_epitopes)} epitopes in each generated antigen")
 
     best = _optimize_for_epitope_set(
@@ -223,7 +246,16 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_fasta", required=True)
+    parser.add_argument("--input_fasta")
+    parser.add_argument(
+        "--seed_sequence",
+        help="Optional seed protein sequence used to initialize latent optimization.",
+    )
+    parser.add_argument(
+        "--seed_epitopes",
+        nargs="+",
+        help="Optional list of three epitopes to optimize with (space- or comma-separated).",
+    )
     parser.add_argument(
         "--ckpt",
         default="../protein-vae/produce_sequences/models/metal16_nostruc",
@@ -263,4 +295,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.top_n_epitopes is not None and args.top_n_epitopes <= 0:
         parser.error("--top_n_epitopes must be a positive integer")
+    parsed_seed_epitopes = _parse_seed_epitopes(args.seed_epitopes)
+    if parsed_seed_epitopes and len(parsed_seed_epitopes) != 3:
+        parser.error("--seed_epitopes must contain exactly 3 epitopes")
+    if not args.input_fasta and not parsed_seed_epitopes:
+        parser.error("--input_fasta is required when --seed_epitopes are not provided")
+    if not args.input_fasta and not args.seed_sequence:
+        parser.error("--seed_sequence is required when running without --input_fasta")
     main(args)
