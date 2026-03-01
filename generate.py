@@ -11,6 +11,17 @@ from scoring.prediction_tools import mhcflurry_supported_alleles, predict_mhcflu
 from utils.seq_utils import build_vocab_and_encode, load_fasta_as_sequences
 
 
+REPORT_ALLELES = [
+    "HLA-A*02:01",
+    "HLA-A*01:01",
+    "HLA-A*03:01",
+    "HLA-A*24:02",
+    "HLA-B*07:02",
+    "HLA-B*08:01",
+    "HLA-B*44:02",
+]
+
+
 def _resolve_output_path(output_json: str) -> Path:
     output_path = Path(output_json)
     if output_path.is_absolute():
@@ -213,14 +224,15 @@ def main(args):
             report_limit = args.top_n_epitopes if args.top_n_epitopes is not None else args.top_k
             reported_epitopes = target_epitopes[:max(1, report_limit)]
 
-            supported_alleles = mhcflurry_supported_alleles()
-            kd_matrix = predict_mhcflurry_kd_matrix(reported_epitopes, alleles=supported_alleles)
+            supported_alleles = set(mhcflurry_supported_alleles())
+            report_alleles = [allele for allele in REPORT_ALLELES if allele in supported_alleles]
+            kd_matrix = predict_mhcflurry_kd_matrix(reported_epitopes, alleles=report_alleles)
 
             print(f"Selected top {len(reported_epitopes)} epitopes:")
             for ep in reported_epitopes:
                 print(f"  {ep}: {epitope_scores[ep]:.4f}")
                 print("    Binding affinity (nM) by allele:")
-                for allele in supported_alleles:
+                for allele in report_alleles:
                     kd = kd_matrix.get(allele, {}).get(ep)
                     kd_display = f"{kd:.4f}" if kd is not None else "N/A"
                     print(f"      {allele}: {kd_display}")
