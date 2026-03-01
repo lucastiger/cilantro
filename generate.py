@@ -214,9 +214,15 @@ def main(args):
         )
 
         epitope_scores = {}
+        epitope_entropy_scores = {}
         for ep in top_epitopes:
+            window_entropy_score = float(ep.get("entropy_score", 0.0))
             for sequence, score in ep.get("epitope_scores", {}).items():
                 epitope_scores[sequence] = max(epitope_scores.get(sequence, 0.0), score)
+                epitope_entropy_scores[sequence] = max(
+                    epitope_entropy_scores.get(sequence, 0.0),
+                    window_entropy_score,
+                )
 
         target_epitopes = _select_target_epitopes(epitope_scores, args.top_n_epitopes)
         print(f"Identified {len(target_epitopes)} optimization-target epitopes")
@@ -230,7 +236,13 @@ def main(args):
 
             print(f"Selected top {len(reported_epitopes)} epitopes:")
             for ep in reported_epitopes:
-                print(f"  {ep}: {epitope_scores[ep]:.4f}")
+                entropy_score = epitope_entropy_scores.get(ep, 0.0)
+                shannon_entropy = 1.0 - entropy_score
+                print(
+                    f"  {ep}: immunogenicity={epitope_scores[ep]:.4f}, "
+                    f"conservation={entropy_score:.4f}, "
+                    f"shannon_entropy={shannon_entropy:.4f}"
+                )
                 print("    Binding affinity (nM) by allele:")
                 for allele in report_alleles:
                     kd = kd_matrix.get(allele, {}).get(ep)
