@@ -7,6 +7,7 @@ from models.vae import ProteinSeqVAE
 from optimize.cma_latent_search import latent_optimize
 from scoring.antigen_scoring import score_antigen_candidate_with_breakdown
 from scoring.find_top_epitopes import find_top_epitopes
+from scoring.prediction_tools import mhcflurry_supported_alleles, predict_mhcflurry_kd_matrix
 from utils.seq_utils import build_vocab_and_encode, load_fasta_as_sequences
 
 
@@ -209,9 +210,17 @@ def main(args):
         target_epitopes = _select_target_epitopes(epitope_scores, args.top_n_epitopes)
         print(f"Identified {len(target_epitopes)} optimization-target epitopes")
         if target_epitopes:
+            supported_alleles = mhcflurry_supported_alleles()
+            kd_matrix = predict_mhcflurry_kd_matrix(target_epitopes, alleles=supported_alleles)
+
             print("Selected epitopes:")
             for ep in target_epitopes:
                 print(f"  {ep}: {epitope_scores[ep]:.4f}")
+                print("    Binding affinity (nM) by allele:")
+                for allele in supported_alleles:
+                    kd = kd_matrix.get(allele, {}).get(ep)
+                    kd_display = f"{kd:.4f}" if kd is not None else "N/A"
+                    print(f"      {allele}: {kd_display}")
 
         optimization_epitopes = _select_antigen_epitopes(target_epitopes, target_count=3)
 
