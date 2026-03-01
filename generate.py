@@ -210,11 +210,14 @@ def main(args):
         target_epitopes = _select_target_epitopes(epitope_scores, args.top_n_epitopes)
         print(f"Identified {len(target_epitopes)} optimization-target epitopes")
         if target_epitopes:
-            supported_alleles = mhcflurry_supported_alleles()
-            kd_matrix = predict_mhcflurry_kd_matrix(target_epitopes, alleles=supported_alleles)
+            report_limit = args.top_n_epitopes if args.top_n_epitopes is not None else args.top_k
+            reported_epitopes = target_epitopes[:max(1, report_limit)]
 
-            print("Selected epitopes:")
-            for ep in target_epitopes:
+            supported_alleles = mhcflurry_supported_alleles()
+            kd_matrix = predict_mhcflurry_kd_matrix(reported_epitopes, alleles=supported_alleles)
+
+            print(f"Selected top {len(reported_epitopes)} epitopes:")
+            for ep in reported_epitopes:
                 print(f"  {ep}: {epitope_scores[ep]:.4f}")
                 print("    Binding affinity (nM) by allele:")
                 for allele in supported_alleles:
