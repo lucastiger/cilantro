@@ -176,9 +176,10 @@ def predict_mhcflurry_kd_matrix(
     with open(os.devnull, "w", encoding="utf-8") as devnull, contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
         try:
             predictions_df = predictor.predict_to_dataframe(peptides=supported_peptides, alleles=filtered_alleles)
-        except AttributeError:
-            predictions_df = None
-        except TypeError:
+        except Exception:
+            # MHCflurry API behavior differs by version; some versions expect
+            # aligned peptide/allele arrays rather than an allele panel.
+            # Fall back to robust per-allele prediction when batched mode fails.
             predictions_df = None
 
     if predictions_df is not None:
