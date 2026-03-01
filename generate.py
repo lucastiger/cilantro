@@ -7,7 +7,19 @@ from models.vae import ProteinSeqVAE
 from optimize.cma_latent_search import latent_optimize
 from scoring.antigen_scoring import score_antigen_candidate_with_breakdown
 from scoring.find_top_epitopes import find_top_epitopes
+from scoring.prediction_tools import mhcflurry_supported_alleles, predict_mhcflurry_kd_matrix
 from utils.seq_utils import build_vocab_and_encode, load_fasta_as_sequences
+
+
+REPORT_ALLELES = [
+    "HLA-A*02:01",
+    "HLA-A*01:01",
+    "HLA-A*03:01",
+    "HLA-A*24:02",
+    "HLA-B*07:02",
+    "HLA-B*08:01",
+    "HLA-B*44:02",
+]
 
 
 def _resolve_output_path(output_json: str) -> Path:
@@ -202,16 +214,40 @@ def main(args):
         )
 
         epitope_scores = {}
+        epitope_entropy_scores = {}
         for ep in top_epitopes:
+            window_entropy_score = float(ep.get("entropy_score", 0.0))
             for sequence, score in ep.get("epitope_scores", {}).items():
                 epitope_scores[sequence] = max(epitope_scores.get(sequence, 0.0), score)
+                epitope_entropy_scores[sequence] = max(
+                    epitope_entropy_scores.get(sequence, 0.0),
+                    window_entropy_score,
+                )
 
         target_epitopes = _select_target_epitopes(epitope_scores, args.top_n_epitopes)
         print(f"Identified {len(target_epitopes)} optimization-target epitopes")
         if target_epitopes:
-            print("Selected epitopes:")
-            for ep in target_epitopes:
-                print(f"  {ep}: {epitope_scores[ep]:.4f}")
+            report_limit = args.top_n_epitopes if args.top_n_epitopes is not None else args.top_k
+            reported_epitopes = target_epitopes[:max(1, report_limit)]
+
+            supported_alleles = set(mhcflurry_supported_alleles())
+            report_alleles = [allele for allele in REPORT_ALLELES if allele in supported_alleles]
+            kd_matrix = predict_mhcflurry_kd_matrix(reported_epitopes, alleles=report_alleles)
+
+            print(f"Selected top {len(reported_epitopes)} epitopes:")
+            for ep in reported_epitopes:
+                entropy_score = epitope_entropy_scores.get(ep, 0.0)
+                shannon_entropy = 1.0 - entropy_score
+                print(
+                    f"  {ep}: immunogenicity={epitope_scores[ep]:.4f}, "
+                    f"conservation={entropy_score:.4f}, "
+                    f"shannon_entropy={shannon_entropy:.4f}"
+                )
+                print("    Binding affinity (nM) by allele:")
+                for allele in report_alleles:
+                    kd = kd_matrix.get(allele, {}).get(ep)
+                    kd_display = f"{kd:.4f}" if kd is not None else "N/A"
+                    print(f"      {allele}: {kd_display}")
 
         optimization_epitopes = _select_antigen_epitopes(target_epitopes, target_count=3)
 
