@@ -169,8 +169,38 @@ def predict_mhcflurry_kd_matrix(
     if not filtered_alleles:
         return {}
 
-    result: Dict[str, Dict[str, float]] = {}
-    for allele in filtered_alleles:
+    result: Dict[str, Dict[str, float]] = {allele: {} for allele in filtered_alleles}
+
+    # Prefer a single batched call when available; this is much faster than
+    # calling predict() once per allele for large allele panels.
+    with open(os.devnull, "w", encoding="utf-8") as devnull, contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+        try:
+            predictions_df = predictor.predict_to_dataframe(peptides=supported_peptides, alleles=filtered_alleles)
+        except Exception:
+            # MHCflurry API behavior differs by version; some versions expect
+            # aligned peptide/allele arrays rather than an allele panel.
+            # Fall back to robust per-allele prediction when batched mode fails.
+            predictions_df = None
+
+    if predictions_df is not None:
+        columns = set(getattr(predictions_df, "columns", []))
+        if {"allele", "peptide"}.issubset(columns):
+            affinity_column = next(
+                (
+                    name
+                    for name in ("prediction", "affinity", "affinity_nM", "kd")
+                    if name in columns
+                ),
+                None,
+            )
+            if affinity_column is not None:
+                for allele, peptide, kd in predictions_df[["allele", "peptide", affinity_column]].itertuples(index=False, name=None):
+                    norm_allele = _normalize_allele_name(str(allele))
+                    if norm_allele in result:
+                        result[norm_allele][str(peptide)] = float(kd)
+
+    missing_alleles = [allele for allele in filtered_alleles if not result.get(allele)]
+    for allele in missing_alleles:
         with open(os.devnull, "w", encoding="utf-8") as devnull, contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
             try:
                 affinities = predictor.predict(peptides=supported_peptides, allele=allele, verbose=0)
