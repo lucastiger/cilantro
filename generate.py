@@ -13,12 +13,19 @@ from utils.seq_utils import build_vocab_and_encode, load_fasta_as_sequences
 
 REPORT_ALLELES = [
     "HLA-A*02:01",
+    "HLA-A*11:01",
     "HLA-A*01:01",
     "HLA-A*03:01",
     "HLA-A*24:02",
+    "HLA-A*33:01",
+    "HLA-A*30:01",
     "HLA-B*07:02",
-    "HLA-B*08:01",
+    "HLA-B*15:01",
     "HLA-B*44:02",
+    "HLA-B*58:01",
+    "HLA-B*53:01",
+    "HLA-B*35:01",
+    "HLA-B*40:01"
 ]
 
 
