@@ -9,10 +9,10 @@ def test_select_target_epitopes_honors_top_n():
     assert generate._select_target_epitopes(epitope_scores, top_n_epitopes=2) == ["A", "B"]
 
 
-def test_select_antigen_epitopes_limits_to_three():
-    epitopes = ["A", "B", "C", "D"]
+def test_select_antigen_epitopes_limits_to_twelve():
+    epitopes = [f"E{i}" for i in range(1, 15)]
 
-    assert generate._select_antigen_epitopes(epitopes, target_count=3) == ["A", "B", "C"]
+    assert generate._select_antigen_epitopes(epitopes, target_count=12) == [f"E{i}" for i in range(1, 13)]
 
 
 def test_optimize_for_epitope_set_single_run(monkeypatch):
@@ -29,18 +29,19 @@ def test_optimize_for_epitope_set_single_run(monkeypatch):
 
     monkeypatch.setattr(generate, "latent_optimize", fake_latent_optimize)
 
+    epitopes = [f"E{i}" for i in range(1, 13)]
     result = generate._optimize_for_epitope_set(
         model=object(),
         seed_latent=[0.0, 1.0],
-        epitopes=["AAAA", "BBB", "CC"],
+        epitopes=epitopes,
         sigma=0.5,
         popsize=2,
         generations=3,
         progress_reporter=None,
     )
 
-    assert calls == [["AAAA", "BBB", "CC"]]
-    assert result["target_epitopes"] == ["AAAA", "BBB", "CC"]
+    assert calls == [epitopes]
+    assert result["target_epitopes"] == epitopes
     assert result["sequence"] == "SEQ_ABC"
 
 
@@ -67,9 +68,11 @@ def test_main_uses_user_provided_seed_epitopes(monkeypatch):
     def fake_build_vocab_and_encode(seqs, max_len):
         return [[1, 2, 3]], None
 
+    seed_panel = [f"E{i}" for i in range(1, 13)]
+
     def fake_latent_optimize(**kwargs):
         calls["latent_optimize"] += 1
-        assert kwargs["target_epitopes"] == ["AAA", "BBB", "CCC"]
+        assert kwargs["target_epitopes"] == seed_panel
         return {"sequence": "SEQ", "score": 0.1, "generation": 0}
 
     monkeypatch.setattr(generate, "ProteinSeqVAE", DummyModel)
@@ -82,7 +85,7 @@ def test_main_uses_user_provided_seed_epitopes(monkeypatch):
         "show_progress": False,
         "progress_per_candidate": False,
         "seed_sequence": "MKT",
-        "seed_epitopes": ["AAA", "BBB", "CCC"],
+        "seed_epitope_panel": seed_panel,
         "input_fasta": None,
         "max_len": 200,
         "ckpt": "checkpoint.pt",
