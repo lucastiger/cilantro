@@ -162,7 +162,7 @@ def _select_target_epitopes(epitope_scores: dict[str, float], top_n_epitopes: in
     return [ep for ep, _ in sorted_epitope_scores[:selected_n]]
 
 
-def _select_antigen_epitopes(epitopes: list[str], target_count: int = 3) -> list[str]:
+def _select_antigen_epitopes(epitopes: list[str], target_count: int = 12) -> list[str]:
     return epitopes[:target_count]
 
 
@@ -205,7 +205,7 @@ def main(args):
 
     tokenized_seed, _ = build_vocab_and_encode([seed_sequence], max_len=args.max_len)
 
-    seed_epitopes = _parse_seed_epitopes(args.seed_epitopes)
+    seed_epitopes = _parse_seed_epitopes(args.seed_epitope_panel)
     if seed_epitopes:
         optimization_epitopes = seed_epitopes
         print(f"Using user-provided epitopes ({len(optimization_epitopes)})")
@@ -256,7 +256,7 @@ def main(args):
                     kd_display = f"{kd:.4f}" if kd is not None else "N/A"
                     print(f"      {allele}: {kd_display}")
 
-        optimization_epitopes = _select_antigen_epitopes(target_epitopes, target_count=3)
+        optimization_epitopes = _select_antigen_epitopes(target_epitopes, target_count=12)
 
     z_mean, _ = model.encode(tokenized_seed[:1])
     z_seed = z_mean[0]
@@ -295,9 +295,9 @@ if __name__ == "__main__":
         help="Optional seed protein sequence used to initialize latent optimization.",
     )
     parser.add_argument(
-        "--seed_epitopes",
+        "--seed_epitope_panel",
         nargs="+",
-        help="Optional list of three epitopes to optimize with (space- or comma-separated).",
+        help="Optional list of 12 epitopes to optimize with (space- or comma-separated).",
     )
     parser.add_argument(
         "--ckpt",
@@ -338,11 +338,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.top_n_epitopes is not None and args.top_n_epitopes <= 0:
         parser.error("--top_n_epitopes must be a positive integer")
-    parsed_seed_epitopes = _parse_seed_epitopes(args.seed_epitopes)
-    if parsed_seed_epitopes and len(parsed_seed_epitopes) != 3:
-        parser.error("--seed_epitopes must contain exactly 3 epitopes")
+    parsed_seed_epitopes = _parse_seed_epitopes(args.seed_epitope_panel)
+    if parsed_seed_epitopes and len(parsed_seed_epitopes) != 12:
+        parser.error("--seed_epitope_panel must contain exactly 12 epitopes")
     if not args.input_fasta and not parsed_seed_epitopes:
-        parser.error("--input_fasta is required when --seed_epitopes are not provided")
+        parser.error("--input_fasta is required when --seed_epitope_panel is not provided")
     if not args.input_fasta and not args.seed_sequence:
         parser.error("--seed_sequence is required when running without --input_fasta")
     main(args)

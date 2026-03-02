@@ -3,24 +3,28 @@ import pytest
 from optimize.cma_latent_search import interleave_generated_sequences_and_epitopes
 
 
-def test_interleave_generated_sequences_and_epitopes_three_epitopes():
-    generated_sequences = ["AAAA", "BBBB", "CCCC", "DDDD"]
-    epitopes = ["E1", "E2", "E3"]
+def test_interleave_generated_sequences_and_epitopes_twelve_epitopes():
+    seq_a = "A" * 130
+    seq_b = "B" * 130
+    epitopes = [f"E{i}" for i in range(1, 13)]
 
-    assert (
-        interleave_generated_sequences_and_epitopes(generated_sequences, epitopes)
-        == "AAAAE1BBBBE2CCCCE3DDDD"
-    )
+    assembled = interleave_generated_sequences_and_epitopes([seq_a, seq_b], epitopes)
 
-def test_insert_epitopes_with_generated_segments_handles_remainder():
-    sequence = "ABCDEFG"
-    epitopes = ["X", "Y", "Z"]
+    assert assembled.count("AAY") == 6
+    assert "E1AAYE2" in assembled
+    assert "E11AAYE12" in assembled
 
-def test_interleave_generated_sequences_and_epitopes_requires_segment_count_match():
-    epitopes = ["X", "Y", "Z"]
 
-    with pytest.raises(ValueError, match=r"len\(epitopes\) \+ 1"):
-        interleave_generated_sequences_and_epitopes(["AB", "CD"], epitopes)
+def test_interleave_generated_sequences_and_epitopes_requires_twelve_epitopes():
+    with pytest.raises(ValueError, match="exactly 12"):
+        interleave_generated_sequences_and_epitopes(["A" * 130, "B" * 130], ["E1", "E2"])
+
+
+def test_interleave_generated_sequences_and_epitopes_requires_two_generated_sequences():
+    epitopes = [f"E{i}" for i in range(1, 13)]
+
+    with pytest.raises(ValueError, match="exactly 2"):
+        interleave_generated_sequences_and_epitopes(["AB"], epitopes)
 
 
 def test_interleave_generated_sequences_and_epitopes_empty_epitopes_is_concat():
