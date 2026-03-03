@@ -11,22 +11,6 @@ from scoring.prediction_tools import mhcflurry_supported_alleles, predict_mhcflu
 from utils.seq_utils import build_vocab_and_encode, load_fasta_as_sequences
 
 
-
-EPITOPE_MIN_LEN = 5
-EPITOPE_MAX_LEN = 15
-
-
-def _validate_epitope_length_range(min_ep_len: int, max_ep_len: int) -> tuple[int, int]:
-    if min_ep_len < EPITOPE_MIN_LEN or max_ep_len > EPITOPE_MAX_LEN:
-        raise ValueError(
-            f"Epitope lengths must be within {EPITOPE_MIN_LEN}-{EPITOPE_MAX_LEN} aa. "
-            f"Got min_ep_len={min_ep_len}, max_ep_len={max_ep_len}."
-        )
-    if min_ep_len > max_ep_len:
-        raise ValueError("--min_ep_len must be <= --max_ep_len")
-    return min_ep_len, max_ep_len
-
-
 REPORT_ALLELES = [
     "HLA-A*02:01",
     "HLA-A*11:01",
@@ -210,7 +194,6 @@ def _optimize_for_epitope_set(*, model, seed_latent, epitopes: list[str], sigma:
 
 
 def main(args):
-    _validate_epitope_length_range(args.min_ep_len, args.max_ep_len)
     progress_reporter = _build_progress_reporter(args.show_progress, args.progress_per_candidate)
     model = ProteinSeqVAE(weights_path=str(_resolve_ckpt_path(args.ckpt)))
 
@@ -323,8 +306,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--max_len", type=int, default=200)
 
-    parser.add_argument("--min_ep_len", type=int, default=EPITOPE_MIN_LEN)
-    parser.add_argument("--max_ep_len", type=int, default=EPITOPE_MAX_LEN)
+    parser.add_argument("--min_ep_len", type=int, default=5)
+    parser.add_argument("--max_ep_len", type=int, default=35)
     parser.add_argument("--top_k", type=int, default=10)
     parser.add_argument(
         "--top_n_epitopes",
@@ -355,10 +338,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.top_n_epitopes is not None and args.top_n_epitopes <= 0:
         parser.error("--top_n_epitopes must be a positive integer")
-    try:
-        _validate_epitope_length_range(args.min_ep_len, args.max_ep_len)
-    except ValueError as exc:
-        parser.error(str(exc))
     parsed_seed_epitopes = _parse_seed_epitopes(args.seed_epitope_panel)
     if parsed_seed_epitopes and len(parsed_seed_epitopes) != 12:
         parser.error("--seed_epitope_panel must contain exactly 12 epitopes")

@@ -90,7 +90,7 @@ def test_main_uses_user_provided_seed_epitopes(monkeypatch):
         "max_len": 200,
         "ckpt": "checkpoint.pt",
         "min_ep_len": 5,
-        "max_ep_len": 15,
+        "max_ep_len": 35,
         "top_k": 10,
         "top_n_epitopes": None,
         "sigma": 0.5,
@@ -103,17 +103,3 @@ def test_main_uses_user_provided_seed_epitopes(monkeypatch):
 
     assert calls["find_top_epitopes"] == 0
     assert calls["latent_optimize"] == 1
-
-
-def test_validate_epitope_length_range_enforces_bounds():
-    assert generate._validate_epitope_length_range(5, 15) == (5, 15)
-
-
-def test_validate_epitope_length_range_rejects_out_of_bounds():
-    for min_len, max_len in [(4, 15), (5, 16), (16, 16), (10, 9)]:
-        try:
-            generate._validate_epitope_length_range(min_len, max_len)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"Expected ValueError for min={min_len}, max={max_len}")
