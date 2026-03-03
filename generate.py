@@ -220,13 +220,18 @@ def main(args):
         for ep in optimization_epitopes:
             print(f"  {ep}")
     else:
-        top_epitopes = find_top_epitopes(
-            args.input_fasta,
-            min_len=args.min_ep_len,
-            max_len=args.max_ep_len,
-            top_k=args.top_k,
-            progress_callback=progress_reporter,
-        )
+        resolved_top_k = _resolve_epitope_search_top_k(args.top_k, args.top_n_epitopes)
+        find_kwargs = {
+            "fasta_path": args.input_fasta,
+            "top_k": resolved_top_k,
+            "progress_callback": progress_reporter,
+        }
+        if args.min_ep_len is not None:
+            find_kwargs["min_len"] = args.min_ep_len
+        if args.max_ep_len is not None:
+            find_kwargs["max_len"] = args.max_ep_len
+
+        top_epitopes = find_top_epitopes(**find_kwargs)
 
         epitope_scores = {}
         epitope_entropy_scores = {}
@@ -320,8 +325,18 @@ if __name__ == "__main__":
     )
     parser.add_argument("--max_len", type=int, default=200)
 
-    parser.add_argument("--min_ep_len", type=int, default=5)
-    parser.add_argument("--max_ep_len", type=int, default=35)
+    parser.add_argument(
+        "--min_ep_len",
+        type=int,
+        default=None,
+        help="Minimum epitope window length (defaults to find_top_epitopes default).",
+    )
+    parser.add_argument(
+        "--max_ep_len",
+        type=int,
+        default=None,
+        help="Maximum epitope window length (defaults to find_top_epitopes default).",
+    )
     parser.add_argument("--top_k", type=int, default=10)
     parser.add_argument(
         "--top_n_epitopes",
