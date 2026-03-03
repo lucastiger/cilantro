@@ -212,13 +212,17 @@ def main(args):
         for ep in optimization_epitopes:
             print(f"  {ep}")
     else:
-        top_epitopes = find_top_epitopes(
-            args.input_fasta,
-            min_len=args.min_ep_len,
-            max_len=args.max_ep_len,
-            top_k=args.top_k,
-            progress_callback=progress_reporter,
-        )
+        find_kwargs = {
+            "fasta_path": args.input_fasta,
+            "top_k": args.top_k,
+            "progress_callback": progress_reporter,
+        }
+        if args.min_ep_len is not None:
+            find_kwargs["min_len"] = args.min_ep_len
+        if args.max_ep_len is not None:
+            find_kwargs["max_len"] = args.max_ep_len
+
+        top_epitopes = find_top_epitopes(**find_kwargs)
 
         epitope_scores = {}
         epitope_entropy_scores = {}
@@ -306,8 +310,18 @@ if __name__ == "__main__":
     )
     parser.add_argument("--max_len", type=int, default=200)
 
-    parser.add_argument("--min_ep_len", type=int, default=5)
-    parser.add_argument("--max_ep_len", type=int, default=35)
+    parser.add_argument(
+        "--min_ep_len",
+        type=int,
+        default=None,
+        help="Minimum epitope window length (defaults to find_top_epitopes default).",
+    )
+    parser.add_argument(
+        "--max_ep_len",
+        type=int,
+        default=None,
+        help="Maximum epitope window length (defaults to find_top_epitopes default).",
+    )
     parser.add_argument("--top_k", type=int, default=10)
     parser.add_argument(
         "--top_n_epitopes",
@@ -338,6 +352,16 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.top_n_epitopes is not None and args.top_n_epitopes <= 0:
         parser.error("--top_n_epitopes must be a positive integer")
+    if args.min_ep_len is not None and args.min_ep_len <= 0:
+        parser.error("--min_ep_len must be a positive integer")
+    if args.max_ep_len is not None and args.max_ep_len <= 0:
+        parser.error("--max_ep_len must be a positive integer")
+    if (
+        args.min_ep_len is not None
+        and args.max_ep_len is not None
+        and args.min_ep_len > args.max_ep_len
+    ):
+        parser.error("--min_ep_len must be <= --max_ep_len")
     parsed_seed_epitopes = _parse_seed_epitopes(args.seed_epitope_panel)
     if parsed_seed_epitopes and len(parsed_seed_epitopes) != 12:
         parser.error("--seed_epitope_panel must contain exactly 12 epitopes")

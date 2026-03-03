@@ -56,3 +56,26 @@ def test_find_top_epitopes_batches_prediction_once(monkeypatch, tmp_path: Path):
     find_top_epitopes(str(fasta_path), min_len=5, max_len=7, top_k=5)
 
     assert call_counter["count"] == 1
+
+
+def test_find_top_epitopes_window_lengths_not_limited_by_short_outliers(monkeypatch, tmp_path: Path):
+    fasta_path = tmp_path / "mixed_lengths.fasta"
+    fasta_path.write_text(
+        ">long1\nACDEFGHIKLMNPQRST\n>long2\nACDEFGHIKLMNPQRST\n>short\nACDEF\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "scoring.find_top_epitopes.mhcflurry_supported_alleles",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        "scoring.find_top_epitopes.parse_allele_frequencies_env",
+        lambda: {},
+    )
+
+    result = find_top_epitopes(str(fasta_path), min_len=5, max_len=15, top_k=300)
+
+    returned_lengths = {entry["length"] for entry in result}
+    assert 5 in returned_lengths
+    assert 15 in returned_lengths
