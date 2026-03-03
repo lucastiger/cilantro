@@ -100,7 +100,11 @@ def find_top_epitopes(
     if not seqs:
         raise ValueError("No sequences found.")
 
-    L = min(len(s) for s in seqs)
+    # Use the longest available sequence when scanning windows. Shorter
+    # sequences are already excluded per-window below, so tying the scan range
+    # to the shortest sequence can collapse candidate lengths as dataset size
+    # increases (e.g., when a short outlier is introduced).
+    L = max(len(s) for s in seqs)
     results = []
 
     if min_len <= 0 or max_len <= 0:
