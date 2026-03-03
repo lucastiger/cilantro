@@ -15,17 +15,33 @@ def interleave_generated_sequences_and_epitopes(generated_sequences: list[str], 
     if not clean_epitopes:
         return "".join(generated_sequences)
 
-    required_segments = len(clean_epitopes) + 1
-    if len(generated_sequences) != required_segments:
-        raise ValueError(
-            "generated_sequences must contain exactly len(epitopes) + 1 entries"
-        )
+    if len(clean_epitopes) != 12:
+        raise ValueError("epitopes must contain exactly 12 non-empty entries")
+    if len(generated_sequences) != 2:
+        raise ValueError("generated_sequences must contain exactly 2 entries (seqA and seqB)")
+
+    seq_a, seq_b = generated_sequences
+
+    scaffolds = [
+        seq_a[10:65],
+        seq_a[55:100],
+        seq_a[90:],
+        seq_b[10:45],
+        seq_b[35:75],
+        seq_b[60:105],
+    ]
+    scaffold_tail = seq_b[100:]
+
+    clusters = [
+        f"{clean_epitopes[idx]}AAY{clean_epitopes[idx + 1]}"
+        for idx in range(0, len(clean_epitopes), 2)
+    ]
 
     antigen_parts: list[str] = []
-    for idx, epitope in enumerate(clean_epitopes):
-        antigen_parts.append(generated_sequences[idx])
-        antigen_parts.append(epitope)
-    antigen_parts.append(generated_sequences[-1])
+    for scaffold, cluster in zip(scaffolds, clusters):
+        antigen_parts.append(scaffold)
+        antigen_parts.append(cluster)
+    antigen_parts.append(scaffold_tail)
 
     return "".join(antigen_parts)
 
@@ -39,8 +55,12 @@ def latent_optimize(
     generations=100,
     progress_callback: Callable[[str, dict], None] | None = None,
 ):
+    clean_target_epitopes = [ep for ep in target_epitopes if ep]
+    if len(clean_target_epitopes) != 12:
+        raise ValueError("target_epitopes must contain exactly 12 non-empty entries")
+
     seed_latent_array = np.asarray(seed_latent, dtype=np.float32)
-    segment_count = len([ep for ep in target_epitopes if ep]) + 1
+    segment_count = 2
     expanded_seed = np.tile(seed_latent_array, segment_count)
     latent_dim = seed_latent_array.shape[0]
 
@@ -81,7 +101,7 @@ def latent_optimize(
 
             seq = interleave_generated_sequences_and_epitopes(
                 generated_sequences,
-                target_epitopes,
+                clean_target_epitopes,
             )
 
             score_breakdown = score_antigen_candidate_with_breakdown(seq)
@@ -107,6 +127,8 @@ def latent_optimize(
             if best is None or score > best["score"]:
                 best = {
                     "sequence": seq,
+                    "seqA": generated_sequences[0],
+                    "seqB": generated_sequences[1],
                     "score": score,
                     "generation": gen,
                     "score_breakdown": score_breakdown,
@@ -120,6 +142,8 @@ def latent_optimize(
                             "generation": gen + 1,
                             "generations": generations,
                             "sequence": seq,
+                            "seqA": generated_sequences[0],
+                            "seqB": generated_sequences[1],
                             "score": score,
                             "immunogenicity": score_breakdown["immunogenicity"],
                             "esm2_sequence_log_likelihood": score_breakdown["esm2_sequence_log_likelihood"],
@@ -136,7 +160,7 @@ def latent_optimize(
                             "hydrophobicity_threshold": score_breakdown.get("hydrophobicity_threshold"),
                             "hydrophobicity_penalty": score_breakdown.get("hydrophobicity_penalty"),
                             "weighted_hydrophobicity_penalty": score_breakdown.get("weighted_hydrophobicity_penalty"),
-                            "target_epitopes": target_epitopes,
+                            "target_epitopes": clean_target_epitopes,
                         },
                     )
 
