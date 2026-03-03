@@ -54,29 +54,25 @@ def _kd_contribution(kd_nm: float) -> float:
     return max(0.0, math.log10(KD_BINDING_THRESHOLD_NM) - math.log10(kd_clamped))
 
 
-def _build_epitope_score_cache(
-    unique_epitopes: set[str],
-    prediction_alleles: List[str],
-    freq_map: Dict[str, float],
-) -> Dict[str, float]:
-    """Compute per-epitope weighted binding contribution in one batched pass."""
-    epitope_score_cache: Dict[str, float] = {ep: 0.0 for ep in unique_epitopes}
-    if not unique_epitopes or not prediction_alleles:
-        return epitope_score_cache
-
-    total_freq = sum(freq for freq in freq_map.values() if freq > 0)
+def _epitope_immunogenicity_score(
+    epitope: str,
+    kd_by_allele: Dict[str, Dict[str, float]],
+    allele_frequencies: Dict[str, float],
+) -> float:
+    total_freq = sum(freq for freq in allele_frequencies.values() if freq > 0)
     if total_freq <= 0:
-        return epitope_score_cache
+        return 0.0
 
-    kd_by_allele = predict_mhcflurry_kd_matrix(unique_epitopes, alleles=prediction_alleles)
-    for allele, freq in freq_map.items():
+    score = 0.0
+    for allele, freq in allele_frequencies.items():
         if freq <= 0:
             continue
-        weight = freq / total_freq
-        for epitope, kd in kd_by_allele.get(allele, {}).items():
-            epitope_score_cache[epitope] += weight * _kd_contribution(kd)
-
-    return epitope_score_cache
+        kd = kd_by_allele.get(allele, {}).get(epitope)
+        if kd is None:
+            continue
+        pa = freq / total_freq
+        score += pa * _kd_contribution(kd)
+    return score
 
 
 def find_top_epitopes(
@@ -159,7 +155,6 @@ def find_top_epitopes(
         entropy_prefix.append(entropy_prefix[-1] + value)
 
     unique_epitopes = set()
-    epitope_sets: Dict[tuple[int, int], set[str]] = {}
     processed_windows = 0
     scored_windows = 0
     for window in range(min_len, max_len + 1):
@@ -170,7 +165,6 @@ def find_top_epitopes(
                 if len(s) >= start + window
             }
             unique_epitopes.update(window_epitopes)
-            epitope_sets[(start, window)] = window_epitopes
             processed_windows += 1
         if progress_callback:
             progress_callback(
@@ -184,15 +178,26 @@ def find_top_epitopes(
                 },
             )
 
-    epitope_score_cache = _build_epitope_score_cache(
-        unique_epitopes,
-        prediction_alleles,
-        freq_map,
-    )
+    epitope_score_cache: Dict[str, float] = {}
+    if unique_epitopes and prediction_alleles:
+        kd_by_allele = predict_mhcflurry_kd_matrix(unique_epitopes, alleles=prediction_alleles)
+        for ep in unique_epitopes:
+            epitope_score_cache[ep] = _epitope_immunogenicity_score(
+                ep,
+                kd_by_allele,
+                freq_map,
+            )
+    else:
+        for ep in unique_epitopes:
+            epitope_score_cache[ep] = 0.0
 
     for window in range(min_len, max_len + 1):
         for start in range(0, L - window + 1):
-            epitope_set = epitope_sets[(start, window)]
+            epitope_set = {
+                s[start:start + window]
+                for s in seqs
+                if len(s) >= start + window
+            }
             if not epitope_set:
                 continue
 
