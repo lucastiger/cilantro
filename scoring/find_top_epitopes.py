@@ -111,7 +111,7 @@ def find_top_epitopes(
     if not seqs:
         return []
 
-    L = min(len(s) for s in seqs)
+    L = max(len(s) for s in seqs)
     results = []
 
     max_len = min(max_len, L)
@@ -159,11 +159,12 @@ def find_top_epitopes(
     scored_windows = 0
     for window in range(min_len, max_len + 1):
         for start in range(0, L - window + 1):
-            unique_epitopes.update(
+            window_epitopes = {
                 s[start:start + window]
                 for s in seqs
                 if len(s) >= start + window
-            )
+            }
+            unique_epitopes.update(window_epitopes)
             processed_windows += 1
         if progress_callback:
             progress_callback(
@@ -192,13 +193,15 @@ def find_top_epitopes(
 
     for window in range(min_len, max_len + 1):
         for start in range(0, L - window + 1):
-            avg_entropy = (entropy_prefix[start + window] - entropy_prefix[start]) / window
-
             epitope_set = {
                 s[start:start + window]
                 for s in seqs
                 if len(s) >= start + window
             }
+            if not epitope_set:
+                continue
+
+            avg_entropy = (entropy_prefix[start + window] - entropy_prefix[start]) / window
 
             epitope_scores = [
                 epitope_score_cache.get(ep, 0.0)
