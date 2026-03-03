@@ -1,6 +1,5 @@
 # data/ncbi_downloader.py
 import argparse
-import http.client
 import os
 import time
 from typing import Iterable, List
@@ -31,8 +30,6 @@ def fetch_sequences_by_taxon(
     query: str | None = None,
     batch_size: int = 50,
     sleep_s: float | None = None,
-    max_retries: int = 4,
-    retry_backoff_s: float = 1.0,
 ) -> None:
     search_query = query or f"{taxon}[Organism]"
     handle = Entrez.esearch(db=db, term=search_query, retmax=max_records)
@@ -47,13 +44,13 @@ def fetch_sequences_by_taxon(
 
     with open(out_fasta, "w") as out:
         for batch in _chunked(ids, batch_size):
-            fasta_chunk = _fetch_fasta_batch_with_retries(
+            efetch = Entrez.efetch(
                 db=db,
-                batch=batch,
-                max_retries=max_retries,
-                retry_backoff_s=retry_backoff_s,
+                id=",".join(batch),
+                rettype="fasta",
+                retmode="text",
             )
-            out.write(fasta_chunk)
+            out.write(efetch.read())
             time.sleep(sleep_s)
 
     print(f"Wrote {out_fasta}")
@@ -68,8 +65,6 @@ def main() -> None:
     parser.add_argument("--query", default=None)
     parser.add_argument("--batch_size", type=int, default=50)
     parser.add_argument("--sleep_s", type=float, default=None)
-    parser.add_argument("--max_retries", type=int, default=4)
-    parser.add_argument("--retry_backoff_s", type=float, default=1.0)
     parser.add_argument("--email", default=os.getenv("NCBI_EMAIL"))
     parser.add_argument("--api_key", default=os.getenv("NCBI_API_KEY"))
     args = parser.parse_args()
@@ -83,40 +78,7 @@ def main() -> None:
         query=args.query,
         batch_size=args.batch_size,
         sleep_s=args.sleep_s,
-        max_retries=args.max_retries,
-        retry_backoff_s=args.retry_backoff_s,
     )
-
-
-def _fetch_fasta_batch_with_retries(
-    db: str,
-    batch: List[str],
-    max_retries: int,
-    retry_backoff_s: float,
-) -> str:
-    last_error: Exception | None = None
-
-    for attempt in range(1, max_retries + 1):
-        try:
-            with Entrez.efetch(
-                db=db,
-                id=",".join(batch),
-                rettype="fasta",
-                retmode="text",
-            ) as efetch:
-                return efetch.read()
-        except (http.client.IncompleteRead, OSError) as exc:
-            last_error = exc
-            if attempt == max_retries:
-                break
-
-            backoff = retry_backoff_s * (2 ** (attempt - 1))
-            time.sleep(backoff)
-
-    raise RuntimeError(
-        "Failed to fetch FASTA batch after retries; "
-        f"batch_size={len(batch)}"
-    ) from last_error
 
 
 if __name__ == "__main__":
