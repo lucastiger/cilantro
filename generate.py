@@ -162,6 +162,12 @@ def _select_target_epitopes(epitope_scores: dict[str, float], top_n_epitopes: in
     return [ep for ep, _ in sorted_epitope_scores[:selected_n]]
 
 
+def _resolve_epitope_search_top_k(top_k: int, top_n_epitopes: int | None) -> int:
+    if top_n_epitopes is None:
+        return top_k
+    return max(top_k, top_n_epitopes)
+
+
 def _select_antigen_epitopes(epitopes: list[str], target_count: int = 12) -> list[str]:
     return epitopes[:target_count]
 
@@ -212,9 +218,10 @@ def main(args):
         for ep in optimization_epitopes:
             print(f"  {ep}")
     else:
+        resolved_top_k = _resolve_epitope_search_top_k(args.top_k, args.top_n_epitopes)
         find_kwargs = {
             "fasta_path": args.input_fasta,
-            "top_k": args.top_k,
+            "top_k": resolved_top_k,
             "progress_callback": progress_reporter,
         }
         if args.min_ep_len is not None:
