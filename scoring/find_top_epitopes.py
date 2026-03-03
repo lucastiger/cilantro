@@ -96,23 +96,19 @@ def find_top_epitopes(
         'epitope_scores': dict(str, float),
     }
     """
-    if min_len <= 0 or max_len <= 0:
-        raise ValueError("Epitope lengths must be positive.")
-    if min_len > max_len:
-        raise ValueError("min_len must be <= max_len.")
-
     seqs = load_sequences(fasta_path)
     if not seqs:
         raise ValueError("No sequences found.")
 
-    # Large NCBI pulls often include a mix of full proteins and short peptides/fragments.
-    # Keep only sequences capable of contributing at the requested epitope length.
-    seqs = [s for s in seqs if len(s) >= min_len]
-    if not seqs:
-        return []
-
     L = min(len(s) for s in seqs)
     results = []
+
+    if min_len <= 0 or max_len <= 0:
+        raise ValueError("Epitope lengths must be positive.")
+    if min_len > max_len:
+        raise ValueError("min_len must be <= max_len.")
+    if min_len > L:
+        return []
 
     max_len = min(max_len, L)
     total_windows = sum((L - window + 1) for window in range(min_len, max_len + 1))
