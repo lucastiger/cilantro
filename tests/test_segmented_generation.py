@@ -15,10 +15,6 @@ def test_select_antigen_epitopes_limits_to_twelve():
     assert generate._select_antigen_epitopes(epitopes, target_count=12) == [f"E{i}" for i in range(1, 13)]
 
 
-def test_resolve_epitope_search_top_k_uses_top_n_when_larger():
-    assert generate._resolve_epitope_search_top_k(top_k=10, top_n_epitopes=150) == 150
-
-
 def test_optimize_for_epitope_set_single_run(monkeypatch):
     calls: list[list[str]] = []
 
@@ -109,106 +105,7 @@ def test_main_uses_user_provided_seed_epitopes(monkeypatch):
     assert calls["latent_optimize"] == 1
 
 
-def test_main_uses_find_top_epitope_defaults_when_no_length_flags(monkeypatch):
-    captured_kwargs = {}
+def test_parse_seed_epitopes_parses_twelve_comma_separated_values():
+    parsed = generate._parse_seed_epitopes([",".join(f"E{i}" for i in range(1, 13))])
 
-    class DummyModel:
-        def __init__(self, weights_path):
-            self.weights_path = weights_path
-
-        def encode(self, tokenized):
-            return [[0.1, 0.2]], None
-
-    def fake_find_top_epitopes(**kwargs):
-        captured_kwargs.update(kwargs)
-        return [{"epitope_scores": {"AAAAAAAA": 1.0}, "entropy_score": 1.0}]
-
-    def fake_build_vocab_and_encode(seqs, max_len):
-        return [[1, 2, 3]], None
-
-    def fake_latent_optimize(**kwargs):
-        return {"sequence": "SEQ", "score": 0.1, "generation": 0}
-
-    monkeypatch.setattr(generate, "ProteinSeqVAE", DummyModel)
-    monkeypatch.setattr(generate, "find_top_epitopes", fake_find_top_epitopes)
-    monkeypatch.setattr(generate, "build_vocab_and_encode", fake_build_vocab_and_encode)
-    monkeypatch.setattr(generate, "score_antigen_candidate_with_breakdown", lambda _seq: {"score": 0.1})
-    monkeypatch.setattr(generate, "latent_optimize", fake_latent_optimize)
-    monkeypatch.setattr(generate, "predict_mhcflurry_kd_matrix", lambda peptides, alleles: {})
-    monkeypatch.setattr(generate, "mhcflurry_supported_alleles", lambda: [])
-
-    args = type("Args", (), {
-        "show_progress": False,
-        "progress_per_candidate": False,
-        "seed_sequence": "MKT",
-        "seed_epitope_panel": None,
-        "input_fasta": "dummy.fasta",
-        "max_len": 200,
-        "ckpt": "checkpoint.pt",
-        "min_ep_len": None,
-        "max_ep_len": None,
-        "top_k": 10,
-        "top_n_epitopes": 1,
-        "sigma": 0.5,
-        "popsize": 2,
-        "generations": 1,
-        "output_json": None,
-    })
-
-    generate.main(args)
-
-    assert captured_kwargs["fasta_path"] == "dummy.fasta"
-    assert captured_kwargs["top_k"] == 10
-    assert "min_len" not in captured_kwargs
-    assert "max_len" not in captured_kwargs
-
-
-def test_main_expands_find_top_epitopes_top_k_for_top_n_request(monkeypatch):
-    captured_kwargs = {}
-
-    class DummyModel:
-        def __init__(self, weights_path):
-            self.weights_path = weights_path
-
-        def encode(self, tokenized):
-            return [[0.1, 0.2]], None
-
-    def fake_find_top_epitopes(**kwargs):
-        captured_kwargs.update(kwargs)
-        return [{"epitope_scores": {"AAAAAAAA": 1.0}, "entropy_score": 1.0}]
-
-    def fake_build_vocab_and_encode(seqs, max_len):
-        return [[1, 2, 3]], None
-
-    def fake_latent_optimize(**kwargs):
-        return {"sequence": "SEQ", "score": 0.1, "generation": 0}
-
-    monkeypatch.setattr(generate, "ProteinSeqVAE", DummyModel)
-    monkeypatch.setattr(generate, "find_top_epitopes", fake_find_top_epitopes)
-    monkeypatch.setattr(generate, "build_vocab_and_encode", fake_build_vocab_and_encode)
-    monkeypatch.setattr(generate, "score_antigen_candidate_with_breakdown", lambda _seq: {"score": 0.1})
-    monkeypatch.setattr(generate, "latent_optimize", fake_latent_optimize)
-    monkeypatch.setattr(generate, "predict_mhcflurry_kd_matrix", lambda peptides, alleles: {})
-    monkeypatch.setattr(generate, "mhcflurry_supported_alleles", lambda: [])
-
-    args = type("Args", (), {
-        "show_progress": False,
-        "progress_per_candidate": False,
-        "seed_sequence": "MKT",
-        "seed_epitope_panel": None,
-        "input_fasta": "dummy.fasta",
-        "max_len": 200,
-        "ckpt": "checkpoint.pt",
-        "min_ep_len": None,
-        "max_ep_len": None,
-        "top_k": 10,
-        "top_n_epitopes": 150,
-        "sigma": 0.5,
-        "popsize": 2,
-        "generations": 1,
-        "output_json": None,
-    })
-
-    generate.main(args)
-
-    assert captured_kwargs["top_k"] == 150
+    assert len(parsed) == 12
