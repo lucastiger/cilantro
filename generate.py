@@ -162,6 +162,12 @@ def _select_target_epitopes(epitope_scores: dict[str, float], top_n_epitopes: in
     return [ep for ep, _ in sorted_epitope_scores[:selected_n]]
 
 
+def _resolve_epitope_search_top_k(top_k: int, top_n_epitopes: int | None) -> int:
+    if top_n_epitopes is None:
+        return top_k
+    return max(top_k, top_n_epitopes)
+
+
 def _select_antigen_epitopes(epitopes: list[str], target_count: int = 12) -> list[str]:
     return epitopes[:target_count]
 
@@ -176,17 +182,9 @@ def _parse_seed_epitopes(raw_seed_epitopes: list[str] | None) -> list[str]:
     return parsed
 
 
-def _validate_epitope_panel(epitopes: list[str], *, source: str) -> None:
-    non_empty_count = len([ep for ep in epitopes if ep])
-    if non_empty_count != 12:
-        raise ValueError(f"{source} must contain exactly 12 non-empty epitopes (got {non_empty_count})")
-
-
 def _optimize_for_epitope_set(*, model, seed_latent, epitopes: list[str], sigma: float, popsize: int, generations: int, progress_reporter):
     if not epitopes:
         return {"sequence": "", "score": float("-inf"), "target_epitopes": []}
-
-    _validate_epitope_panel(epitopes, source="epitope panel")
 
     best = latent_optimize(
         model=model,
@@ -270,7 +268,6 @@ def main(args):
                     print(f"      {allele}: {kd_display}")
 
         optimization_epitopes = _select_antigen_epitopes(target_epitopes, target_count=12)
-        _validate_epitope_panel(optimization_epitopes, source="Automatically selected epitopes")
 
     z_mean, _ = model.encode(tokenized_seed[:1])
     z_seed = z_mean[0]
@@ -312,11 +309,6 @@ if __name__ == "__main__":
         "--seed_epitope_panel",
         nargs="+",
         help="Optional list of 12 epitopes to optimize with (space- or comma-separated).",
-    )
-    parser.add_argument(
-        "--seed_epitopes",
-        nargs="+",
-        help="Deprecated alias for --seed_epitope_panel.",
     )
     parser.add_argument(
         "--ckpt",
@@ -367,13 +359,19 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.top_n_epitopes is not None and args.top_n_epitopes <= 0:
         parser.error("--top_n_epitopes must be a positive integer")
-    if args.seed_epitope_panel and args.seed_epitopes:
-        parser.error("Use only one of --seed_epitope_panel or --seed_epitopes")
-    raw_seed_tokens = args.seed_epitope_panel if args.seed_epitope_panel is not None else args.seed_epitopes
-    parsed_seed_epitopes = _parse_seed_epitopes(raw_seed_tokens)
+    if args.min_ep_len is not None and args.min_ep_len <= 0:
+        parser.error("--min_ep_len must be a positive integer")
+    if args.max_ep_len is not None and args.max_ep_len <= 0:
+        parser.error("--max_ep_len must be a positive integer")
+    if (
+        args.min_ep_len is not None
+        and args.max_ep_len is not None
+        and args.min_ep_len > args.max_ep_len
+    ):
+        parser.error("--min_ep_len must be <= --max_ep_len")
+    parsed_seed_epitopes = _parse_seed_epitopes(args.seed_epitope_panel)
     if parsed_seed_epitopes and len(parsed_seed_epitopes) != 12:
-        parser.error("--seed_epitope_panel/--seed_epitopes must contain exactly 12 epitopes")
-    args.seed_epitope_panel = raw_seed_tokens
+        parser.error("--seed_epitope_panel must contain exactly 12 epitopes")
     if not args.input_fasta and not parsed_seed_epitopes:
         parser.error("--input_fasta is required when --seed_epitope_panel is not provided")
     if not args.input_fasta and not args.seed_sequence:

@@ -78,7 +78,7 @@ def test_latent_optimize_reports_generation_progress(monkeypatch):
     best = latent_optimize(
         model=FakeModel(),
         seed_latent=np.array([0.0, 0.0]),
-        target_epitopes=[f"E{i}" for i in range(1, 13)],
+        target_epitopes=["AAA", "BBB", "CCC"],
         popsize=2,
         generations=2,
         progress_callback=lambda event, payload: events.append((event, payload)),
@@ -91,18 +91,16 @@ def test_latent_optimize_reports_generation_progress(monkeypatch):
     generation_events = [payload for event, payload in events if event == "generation_complete"]
     new_best_events = [payload for event, payload in events if event == "new_best_candidate"]
     assert generation_events[0]["top_candidates"] == [
-        {"sequence": "E1AAYE2E3AAYE4E5AAYE6E7AAYE8E9AAYE10E11AAYE12", "score": 0.4},
-        {"sequence": "E1AAYE2E3AAYE4E5AAYE6E7AAYE8E9AAYE10E11AAYE12", "score": 0.1},
+        {"sequence": "AAAAAAAAABBBAAACCCAAA", "score": 0.4},
+        {"sequence": "AAAAAAAAABBBAAACCCAAA", "score": 0.1},
     ]
     assert generation_events[1]["top_candidates"] == [
-        {"sequence": "E1AAYE2E3AAYE4E5AAYE6E7AAYE8E9AAYE10E11AAYE12", "score": 0.3},
-        {"sequence": "E1AAYE2E3AAYE4E5AAYE6E7AAYE8E9AAYE10E11AAYE12", "score": 0.2},
+        {"sequence": "AAAAAAAAABBBAAACCCAAA", "score": 0.3},
+        {"sequence": "AAAAAAAAABBBAAACCCAAA", "score": 0.2},
     ]
     assert len(new_best_events) == 2
     assert new_best_events[1]["score"] == 0.4
-    assert new_best_events[1]["sequence"] == "E1AAYE2E3AAYE4E5AAYE6E7AAYE8E9AAYE10E11AAYE12"
-    assert new_best_events[1]["seqA"] == "AAA"
-    assert new_best_events[1]["seqB"] == "AAA"
+    assert new_best_events[1]["sequence"] == "AAAAAAAAABBBAAACCCAAA"
     assert labels[-1] == "complete"
     assert best["score"] == 0.4
 
@@ -155,7 +153,7 @@ def test_latent_optimize_uses_total_score_not_base_score(monkeypatch):
     best = latent_optimize(
         model=FakeModel(),
         seed_latent=np.array([0.0, 0.0]),
-        target_epitopes=[f"E{i}" for i in range(1, 13)],
+        target_epitopes=["AAA"],
         popsize=2,
         generations=1,
         progress_callback=None,
